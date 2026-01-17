@@ -1,7 +1,21 @@
 import 'package:flutter/material.dart';
-import 'welcome_page.dart';
+import 'splash_page.dart';
+
+import 'theme_manager.dart';
+
 void main() {
-  runApp(const MaterialApp(
-    home:WelcomePage (),
-  ));
+  runApp(
+    ValueListenableBuilder<ThemeMode>(
+      valueListenable: ThemeManager.themeNotifier,
+      builder: (context, themeMode, child) {
+        return MaterialApp(
+          home: const SplashPage(),
+          debugShowCheckedModeBanner: false,
+          theme: ThemeManager.lightTheme,
+          darkTheme: ThemeManager.darkTheme,
+          themeMode: themeMode,
+        );
+      },
+    ),
+  );
 }
