@@ -25,13 +25,6 @@ class _RegisterPageState extends State<RegisterPage> {
 
   void _handleRegister() {
     if (_formKey.currentState!.validate()) {
-      String name = _nameController.text.trim();
-      String email = _emailController.text.trim();
-
-      print(
-        "SUCCESS: User $name registered as $_selectedRole with email: $email",
-      );
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Registration successful as $_selectedRole!")),
       );
@@ -138,8 +131,9 @@ class _RegisterPageState extends State<RegisterPage> {
                               theme,
                             ),
                             validator: (value) {
-                              if (value == null || value.isEmpty)
+                              if (value == null || value.isEmpty) {
                                 return 'Please enter your name';
+                              }
                               return null;
                             },
                           ),
@@ -198,10 +192,12 @@ class _RegisterPageState extends State<RegisterPage> {
                                   ),
                                 ),
                             validator: (value) {
-                              if (value == null || value.isEmpty)
+                              if (value == null || value.isEmpty) {
                                 return 'Please enter a password';
-                              if (value.length < 6)
+                              }
+                              if (value.length < 6) {
                                 return 'Password must be at least 6 characters';
+                              }
                               return null;
                             },
                           ),
@@ -234,8 +230,9 @@ class _RegisterPageState extends State<RegisterPage> {
                                   ),
                                 ),
                             validator: (value) {
-                              if (value != _passwordController.text)
+                              if (value != _passwordController.text) {
                                 return 'Passwords do not match';
+                              }
                               return null;
                             },
                           ),
@@ -325,7 +322,7 @@ class _RegisterPageState extends State<RegisterPage> {
       hintStyle: TextStyle(color: hintColor),
       filled: true,
       fillColor: theme.brightness == Brightness.dark
-          ? Colors.grey.withOpacity(0.1)
+          ? Colors.grey.withValues(alpha: 0.1)
           : Colors.white,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       enabledBorder: OutlineInputBorder(
@@ -361,9 +358,9 @@ class _RegisterPageState extends State<RegisterPage> {
         padding: const EdgeInsets.symmetric(vertical: 20),
         decoration: BoxDecoration(
           color: isSelected
-              ? theme.primaryColor.withOpacity(0.1)
+              ? theme.primaryColor.withValues(alpha: 0.1)
               : theme.brightness == Brightness.dark
-              ? Colors.grey.withOpacity(0.1)
+              ? Colors.grey.withValues(alpha: 0.1)
               : const Color(0xFFF7F8F9),
           border: Border.all(
             color: isSelected ? theme.primaryColor : theme.dividerColor,

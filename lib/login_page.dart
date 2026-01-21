@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'register_page.dart';
 import 'patient_dashboard.dart';
+import 'monitor_dashboard.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -140,7 +141,7 @@ class _LoginPageState extends State<LoginPage> {
                               hintStyle: TextStyle(color: secondaryTextColor),
                               filled: true,
                               fillColor: theme.brightness == Brightness.dark
-                                  ? Colors.grey.withOpacity(0.1)
+                                  ? Colors.grey.withValues(alpha: 0.1)
                                   : Colors.white,
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 16,
@@ -265,11 +266,9 @@ class _LoginPageState extends State<LoginPage> {
           MaterialPageRoute(builder: (context) => const PatientDashboard()),
         );
       } else if (email.contains('monitor')) {
-        print("SUCCESS: Navigating to Monitor Dashboard");
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Monitor Dashboard not implemented yet"),
-          ),
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MonitorDashboard()),
         );
       } else {
         ScaffoldMessenger.of(
@@ -301,7 +300,7 @@ class _LoginPageState extends State<LoginPage> {
       hintStyle: TextStyle(color: hintColor),
       filled: true,
       fillColor: Theme.of(context).brightness == Brightness.dark
-          ? Colors.grey.withOpacity(0.1)
+          ? Colors.grey.withValues(alpha: 0.1)
           : Colors.white,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       enabledBorder: OutlineInputBorder(
