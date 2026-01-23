@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'theme_manager.dart';
 import 'login_page.dart';
+import 'services/database_service.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -13,80 +14,41 @@ class AdminDashboard extends StatefulWidget {
 class _AdminDashboardState extends State<AdminDashboard> {
   int _selectedIndex = 0;
 
-  // --- Mock Data ---
-  final List<Map<String, dynamic>> _users = [
-    {
-      "id": 1,
-      "name": "John Patient",
-      "role": "Patient",
-      "active": true,
-      "email": "john@example.com",
-    },
-    {
-      "id": 2,
-      "name": "Dr. Smith",
-      "role": "Monitor",
-      "active": true,
-      "email": "dr.smith@example.com",
-    },
-    {
-      "id": 3,
-      "name": "Admin User",
-      "role": "Admin",
-      "active": true,
-      "email": "admin@medimind.com",
-    },
-    {
-      "id": 4,
-      "name": "Jane Doe",
-      "role": "Patient",
-      "active": false,
-      "email": "jane@example.com",
-    },
-    {
-      "id": 5,
-      "name": "Nurse Joy",
-      "role": "Monitor",
-      "active": true,
-      "email": "joy@example.com",
-    },
-  ];
+  // No Mock Users List anymore
 
-  final List<Map<String, dynamic>> _issues = [
-    {
-      "id": 101,
-      "title": "Login failing",
-      "status": "Open",
-      "user": "John Patient",
-      "date": "2023-10-25",
-    },
-    {
-      "id": 102,
-      "title": "Crash on history",
-      "status": "In Progress",
-      "user": "Dr. Smith",
-      "date": "2023-10-24",
-    },
-    {
-      "id": 103,
-      "title": "Typo in FAQ",
-      "status": "Resolved",
-      "user": "Jane Doe",
-      "date": "2023-10-20",
-    },
-  ];
+  final List<Map<String, dynamic>> _issues = [];
 
   // Content Management Controllers
-  final TextEditingController _aboutUsController = TextEditingController(
-    text:
-        "MediMind is dedicated to helping patients manage their medication adherence through smart monitoring and reminders.",
-  );
-  final TextEditingController _privacyPolicyController = TextEditingController(
-    text: "Your data is secure with us. We adhere to HIPAA guidelines...",
-  );
-  final TextEditingController _faqController = TextEditingController(
-    text: "Q: How do I add medicine?\nA: Go to the Medicine tab and click +.",
-  );
+  final TextEditingController _aboutUsController = TextEditingController();
+  final TextEditingController _privacyPolicyController =
+      TextEditingController();
+  final TextEditingController _faqController = TextEditingController();
+
+  bool _isLoadingContent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadContent();
+  }
+
+  Future<void> _loadContent() async {
+    setState(() => _isLoadingContent = true);
+    try {
+      final content = await DatabaseService().getAppContent().first;
+      if (mounted) {
+        setState(() {
+          _aboutUsController.text = content['aboutUs'] ?? '';
+          _privacyPolicyController.text = content['privacyPolicy'] ?? '';
+          _faqController.text = content['faq'] ?? '';
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading content: $e");
+    } finally {
+      if (mounted) setState(() => _isLoadingContent = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -116,6 +78,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () {
+              // Logout
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(builder: (context) => const LoginPage()),
@@ -124,7 +87,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ),
         ],
       ),
-      body: _buildCurrentTab(),
+      // BODY NOW WRAPPED IN STREAM BUILDER
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: DatabaseService().getAllUsers(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text("Error: ${snapshot.error}"));
+          }
+          final users = snapshot.data ?? [];
+          return _buildCurrentTab(users);
+        },
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: theme.cardColor,
@@ -150,6 +126,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
               label: "Overview",
             ),
             BottomNavigationBarItem(icon: Icon(Icons.people), label: "Users"),
+            // Removed Reports/Issues tabs which were heavily mock-reliant to simplify for now,
+            // or we can keep them but they won't have real data yet.
+            // Let's keep them but pass 'users' to them if needed.
             BottomNavigationBarItem(
               icon: Icon(Icons.analytics),
               label: "Reports",
@@ -185,12 +164,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
-  Widget _buildCurrentTab() {
+  Widget _buildCurrentTab(List<Map<String, dynamic>> users) {
     switch (_selectedIndex) {
       case 0:
-        return _buildOverviewTab();
+        return _buildOverviewTab(users);
       case 1:
-        return _buildUsersTab();
+        return _buildUsersTab(users);
       case 2:
         return _buildReportsTab();
       case 3:
@@ -205,9 +184,22 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget returnContainer() => Container();
 
   // --- 1. System Overview ---
-  Widget _buildOverviewTab() {
-    final activeUsers = _users.where((u) => u['active'] == true).length;
-    final inactiveUsers = _users.length - activeUsers;
+  Widget _buildOverviewTab(List<Map<String, dynamic>> users) {
+    // Calculate Stats Real-time
+    final activeUsers = users
+        .where((u) => u['active'] == true)
+        .length; // Needs 'active' field in DB or default true
+    final inactiveUsers = users.length - activeUsers;
+    final patients = users
+        .where((u) => u['role']?.toString().toLowerCase() == "patient")
+        .length;
+    final monitors = users
+        .where(
+          (u) =>
+              u['role']?.toString().toLowerCase() == "monitor" ||
+              u['role']?.toString().toLowerCase() == "guardian",
+        )
+        .length;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -216,7 +208,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         children: [
           _buildStatCard(
             "Total Users",
-            _users.length.toString(),
+            users.length.toString(),
             Icons.group,
             Colors.blue,
           ),
@@ -248,7 +240,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
               Expanded(
                 child: _buildStatCard(
                   "Patients",
-                  _users.where((u) => u['role'] == "Patient").length.toString(),
+                  patients.toString(),
                   Icons.medical_services,
                   Colors.teal,
                 ),
@@ -257,7 +249,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
               Expanded(
                 child: _buildStatCard(
                   "Monitors",
-                  _users.where((u) => u['role'] == "Monitor").length.toString(),
+                  monitors.toString(),
                   Icons.remove_red_eye,
                   Colors.orange,
                 ),
@@ -272,9 +264,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ).textTheme.titleLarge?.copyWith(fontSize: 18),
           ),
           const SizedBox(height: 12),
-          _buildActivityItem("New user registration: John Doe", "2 mins ago"),
-          _buildActivityItem("Issue reported: Login Error", "1 hour ago"),
-          _buildActivityItem("Content updated: Privacy Policy", "Yesterday"),
+          // Mock activity removed to avoid confusion
+          Container(
+            padding: const EdgeInsets.all(16),
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Text(
+              "Real-time logs coming soon...",
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ),
         ],
       ),
     );
@@ -333,45 +336,21 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  Widget _buildActivityItem(String title, String time) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              color: Theme.of(context).textTheme.bodyLarge?.color,
-            ),
-          ),
-          Text(
-            time,
-            style: TextStyle(
-              color: Theme.of(context).textTheme.bodyMedium?.color,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   // --- 2. User Management ---
-  Widget _buildUsersTab() {
+  Widget _buildUsersTab(List<Map<String, dynamic>> users) {
+    if (users.isEmpty) {
+      return const Center(child: Text("No users found"));
+    }
     return ListView.separated(
       padding: const EdgeInsets.all(20),
-      itemCount: _users.length,
+      itemCount: users.length,
       separatorBuilder: (context, index) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
-        final user = _users[index];
-        final bool isActive = user['active'];
+        final user = users[index];
+        final bool isActive = user['active'] ?? true;
         final theme = Theme.of(context);
+        final name = user['name'] ?? 'Unknown';
+        final initial = name.isNotEmpty ? name[0] : '?';
 
         return Container(
           padding: const EdgeInsets.all(16),
@@ -384,7 +363,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
               CircleAvatar(
                 backgroundColor: theme.primaryColor.withValues(alpha: 0.1),
                 child: Text(
-                  user['name'][0],
+                  initial,
                   style: TextStyle(color: theme.primaryColor),
                 ),
               ),
@@ -394,21 +373,21 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      user['name'],
+                      name,
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         color: theme.textTheme.bodyLarge?.color,
                       ),
                     ),
                     Text(
-                      user['role'],
+                      user['role'] ?? 'Unknown Role',
                       style: TextStyle(
                         fontSize: 12,
                         color: theme.textTheme.bodyMedium?.color,
                       ),
                     ),
                     Text(
-                      user['email'],
+                      user['email'] ?? 'No Email',
                       style: TextStyle(
                         fontSize: 12,
                         color: theme.textTheme.bodyMedium?.color,
@@ -417,12 +396,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   ],
                 ),
               ),
+              // Make switch read-only or implement update logic later
               Switch(
                 value: isActive,
-                onChanged: (val) {
-                  setState(() {
-                    user['active'] = val;
-                  });
+                onChanged: (val) async {
+                  await DatabaseService().toggleUserActiveStatus(
+                    user['id'],
+                    val,
+                  );
                 },
                 activeTrackColor: Colors.green,
               ),
@@ -433,146 +414,43 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  // --- 3. Reports & Analysis ---
   Widget _buildReportsTab() {
-    final theme = Theme.of(context);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+    return Center(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text("Adherence Overview", style: theme.textTheme.titleLarge),
-          const SizedBox(height: 20),
-          _buildChartPlaceholder("Overall Adherence", "85%"),
-          const SizedBox(height: 24),
-          Text("Missed Dose Trends", style: theme.textTheme.titleLarge),
-          const SizedBox(height: 20),
-          Container(
-            height: 200,
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: theme.cardColor,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildBar(0.4, "Mon", Colors.red),
-                _buildBar(0.2, "Tue", Colors.red),
-                _buildBar(0.6, "Wed", Colors.red),
-                _buildBar(0.3, "Thu", Colors.red),
-                _buildBar(0.1, "Fri", Colors.red),
-                _buildBar(0.5, "Sat", Colors.red),
-                _buildBar(0.2, "Sun", Colors.red),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text("Summary", style: theme.textTheme.titleLarge),
-          const SizedBox(height: 12),
-          _buildSummaryItem("Daily Average", "92% Adherence"),
-          _buildSummaryItem("Weekly Average", "88% Adherence"),
-          _buildSummaryItem("Most Missed", "Lunch Doses"),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildChartPlaceholder(String title, String mainValue) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          Text(
-            title,
-            style: TextStyle(color: theme.textTheme.bodyMedium?.color),
-          ),
+          Icon(Icons.bar_chart, size: 80, color: Colors.blueGrey[200]),
           const SizedBox(height: 16),
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                height: 150,
-                width: 150,
-                child: CircularProgressIndicator(
-                  value: 0.85,
-                  strokeWidth: 12,
-                  backgroundColor: theme.dividerColor,
-                  color: theme.colorScheme.secondary,
-                ),
-              ),
-              Text(
-                mainValue,
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: theme.textTheme.bodyLarge?.color,
-                ),
-              ),
-            ],
+          const Text(
+            "Reports & Analysis coming soon",
+            style: TextStyle(fontSize: 18, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            "Once users start tracking medicines, charts will appear here.",
+            style: TextStyle(fontSize: 14, color: Colors.grey),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBar(double heightFactor, String label, Color color) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        Container(
-          height: 120 * heightFactor,
-          width: 20,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(6),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      ],
-    );
-  }
-
-  Widget _buildSummaryItem(String label, String value) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: Theme.of(context).textTheme.bodyMedium?.color,
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).textTheme.bodyLarge?.color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // --- 4. Issue Management ---
   Widget _buildIssuesTab() {
+    if (_issues.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.check_circle_outline, size: 80, color: Colors.green),
+            const SizedBox(height: 16),
+            const Text(
+              "No issues reported",
+              style: TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
     return ListView.separated(
       padding: const EdgeInsets.all(20),
       itemCount: _issues.length,
@@ -682,18 +560,39 @@ class _AdminDashboardState extends State<AdminDashboard> {
             width: double.infinity,
             height: 50,
             child: ElevatedButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Content updated successfully!"),
-                  ),
-                );
+              onPressed: () async {
+                setState(() => _isLoadingContent = true);
+                try {
+                  await DatabaseService().updateAppContent({
+                    'aboutUs': _aboutUsController.text,
+                    'privacyPolicy': _privacyPolicyController.text,
+                    'faq': _faqController.text,
+                  });
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Content updated successfully!"),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Error updating: $e")),
+                    );
+                  }
+                } finally {
+                  if (mounted) setState(() => _isLoadingContent = false);
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).primaryColor,
                 foregroundColor: Colors.white,
               ),
-              child: const Text("Save All Changes"),
+              child: _isLoadingContent
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text("Save All Changes"),
             ),
           ),
         ],

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'services/auth_service.dart';
+import 'services/database_service.dart';
 import 'register_page.dart';
 import 'patient_dashboard.dart';
 import 'monitor_dashboard.dart';
@@ -16,6 +19,10 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _obscurePassword = true;
+
+  final AuthService _authService = AuthService();
+  final DatabaseService _dbService = DatabaseService();
+  bool _isLoading = false;
 
   @override
   Widget build(BuildContext context) {
@@ -188,13 +195,17 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                                 elevation: 0,
                               ),
-                              child: const Text(
-                                "Sign In",
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                              child: _isLoading
+                                  ? const CircularProgressIndicator(
+                                      color: Colors.white,
+                                    )
+                                  : const Text(
+                                      "Sign In",
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -256,30 +267,97 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  void _handleLogin() {
+  Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
-      String email = _emailController.text.trim().toLowerCase();
+      setState(() => _isLoading = true);
 
-      // Logic for dashboard routing
-      if (email.contains('patient')) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const PatientDashboard()),
+      try {
+        // 1. Sign In
+        UserCredential userCred = await _authService.signIn(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
         );
-      } else if (email.contains('monitor')) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MonitorDashboard()),
-        );
-      } else if (email.contains('admin')) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const AdminDashboard()),
-        );
-      } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Login successful!")));
+
+        if (userCred.user != null) {
+          String uid = userCred.user!.uid;
+          String email = _emailController.text.trim();
+
+          // ---------------------------------------------------------
+          // SELF-HEALING & AUTO-ADMIN LOGIC
+          // ---------------------------------------------------------
+          final adminEmails = [
+            'asifabar43@gmail.com',
+            'srhridoy133@gmail.com',
+            'jahanispa02@gmail.com',
+          ];
+
+          bool isAdminEmail = adminEmails.contains(email);
+
+          // Fetch user data
+          Map<String, dynamic>? userData = await _dbService.getUserData(uid);
+
+          String role = 'patient'; // Default
+
+          if (isAdminEmail) {
+            // FORCE ADMIN ROLE
+            if (userData == null || userData['role'] != 'admin') {
+              // Create or Update doc to be Admin
+              await _dbService.updateUserRole(uid, 'admin');
+              role = 'admin';
+            } else {
+              role = 'admin';
+            }
+          } else {
+            // Normal User
+            if (userData == null) {
+              // Missing doc? Create default patient doc to fix "hanging"
+              await _dbService.createUserDoc(uid, email, 'patient', 'User');
+              role = 'patient';
+            } else {
+              role = userData['role'] ?? 'patient';
+            }
+          }
+
+          if (mounted) {
+            // 3. Route based on role
+            if (role == 'patient') {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PatientDashboard(),
+                ),
+              );
+            } else if (role == 'monitor' || role == 'guardian') {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const MonitorDashboard(),
+                ),
+              );
+            } else if (role == 'admin') {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const AdminDashboard()),
+              );
+            } else {
+              // Fallback
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PatientDashboard(),
+                ),
+              );
+            }
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Login Failed: ${e.toString()}")),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
     }
   }

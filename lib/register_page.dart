@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'services/auth_service.dart';
+import 'login_page.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -23,11 +25,58 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
 
-  void _handleRegister() {
+  final AuthService _authService = AuthService();
+  bool _isLoading = false;
+
+  Future<void> _handleRegister() async {
     if (_formKey.currentState!.validate()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Registration successful as $_selectedRole!")),
-      );
+      setState(() => _isLoading = true);
+      try {
+        String roleToRegister = _selectedRole;
+        String email = _emailController.text.trim();
+
+        // ---------------------------------------------------------
+        // AUTO-ADMIN LOGIC
+        // If the email matches one of the hardcoded admin emails,
+        // force the role to 'admin'.
+        // ---------------------------------------------------------
+        final adminEmails = [
+          'asifabar43@gmail.com',
+          'srhridoy133@gmail.com',
+          'jahanispa02@gmail.com',
+        ];
+
+        if (adminEmails.contains(email)) {
+          roleToRegister = 'admin';
+        }
+
+        await _authService.signUp(
+          email: email,
+          password: _passwordController.text,
+          role: roleToRegister,
+          name: _nameController.text.trim(),
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Registration successful! Please sign in."),
+            ),
+          );
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const LoginPage()),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("Error: ${e.toString()}")));
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -243,7 +292,7 @@ class _RegisterPageState extends State<RegisterPage> {
                             width: double.infinity,
                             height: 50,
                             child: ElevatedButton(
-                              onPressed: _handleRegister,
+                              onPressed: _isLoading ? null : _handleRegister,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: primaryColor,
                                 foregroundColor: theme.colorScheme.onPrimary,
@@ -252,13 +301,17 @@ class _RegisterPageState extends State<RegisterPage> {
                                 ),
                                 elevation: 0,
                               ),
-                              child: const Text(
-                                "Sign Up",
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                              child: _isLoading
+                                  ? const CircularProgressIndicator(
+                                      color: Colors.white,
+                                    )
+                                  : const Text(
+                                      "Sign Up",
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                             ),
                           ),
                         ],

@@ -1,0 +1,28 @@
+{
+    "firestore": {
+        "rules": "firestore.rules"
+    },
+    "flutter": {
+        "platforms": {
+            "android": {
+                "default": {
+                    "projectId": "medimind-c464d",
+                    "appId": "1:923796921889:android:b4ee9b4e26fceb3042cd60",
+                    "fileOutput": "android/app/google-services.json"
+                }
+            },
+            "dart": {
+                "lib/firebase_options.dart": {
+                    "projectId": "medimind-c464d",
+                    "configurations": {
+                        "android": "1:923796921889:android:b4ee9b4e26fceb3042cd60",
+                        "ios": "1:923796921889:ios:a27d56c42c171a6e42cd60",
+                        "macos": "1:923796921889:ios:a27d56c42c171a6e42cd60",
+                        "web": "1:923796921889:web:3dbb30ded25112cb42cd60",
+                        "windows": "1:923796921889:web:ca7aedd8dcb7d7d642cd60"
+                    }
+                }
+            }
+        }
+    }
+}

@@ -7,12 +7,14 @@ class MedicineDetailPage extends StatefulWidget {
   final Medicine medicine;
   final VoidCallback onDelete;
   final Function(Medicine) onUpdate;
+  final String userId;
 
   const MedicineDetailPage({
     super.key,
     required this.medicine,
     required this.onDelete,
     required this.onUpdate,
+    required this.userId,
   });
 
   @override
@@ -29,7 +31,8 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => AddMedicinePage(medicine: widget.medicine),
+        builder: (context) =>
+            AddMedicinePage(medicine: widget.medicine, userId: widget.userId),
       ),
     );
 

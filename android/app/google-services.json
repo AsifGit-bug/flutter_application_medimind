@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "923796921889",
+    "project_id": "medimind-c464d",
+    "storage_bucket": "medimind-c464d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:923796921889:android:b4ee9b4e26fceb3042cd60",
+        "android_client_info": {
+          "package_name": "com.example.flutter_application_medimind"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyARua9X0Fd6NuDwEpAWy1EYhjStEwR8h9w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

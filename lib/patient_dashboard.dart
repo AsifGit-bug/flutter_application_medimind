@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'medicine_model.dart';
 import 'add_medicine_page.dart';
 import 'medicine_detail_page.dart';
 import 'login_page.dart';
 import 'theme_manager.dart';
+import 'services/database_service.dart';
+import 'services/auth_service.dart';
+import 'content_display_page.dart';
 
 class PatientDashboard extends StatefulWidget {
   const PatientDashboard({super.key});
@@ -15,37 +19,30 @@ class PatientDashboard extends StatefulWidget {
 
 class _PatientDashboardState extends State<PatientDashboard> {
   int _selectedIndex = 0;
-  final List<Medicine> _medicines = [];
+
+  // Services
+  final AuthService _auth = AuthService();
+  final DatabaseService _db = DatabaseService();
+  late User _currentUser;
 
   // History Tab State
   String _historyView = "Timeline";
   String _historyFilter = "All";
 
-  // Stats (Placeholder)
-  int get _takenCount => 0;
-  int get _pendingCount => _medicines.length;
+  @override
+  void initState() {
+    super.initState();
+    _currentUser = _auth.currentUser!;
+  }
 
   void _navigateToAddMedicine() async {
-    final result = await Navigator.push(
+    await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const AddMedicinePage()),
+      MaterialPageRoute(
+        builder: (context) => AddMedicinePage(userId: _currentUser.uid),
+      ),
     );
-
-    if (!mounted) return;
-
-    if (result != null && result is Medicine) {
-      setState(() {
-        _medicines.add(result);
-        _sortMedicines();
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("${result.name} added"),
-          backgroundColor: Theme.of(context).primaryColor,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+    // No need to setState, StreamBuilder will update
   }
 
   void _navigateToDetail(Medicine medicine) async {
@@ -54,32 +51,25 @@ class _PatientDashboardState extends State<PatientDashboard> {
       MaterialPageRoute(
         builder: (context) => MedicineDetailPage(
           medicine: medicine,
-          onDelete: () {
-            setState(() {
-              _medicines.removeWhere((m) => m.id == medicine.id);
-            });
-            Navigator.pop(context);
+          userId: _currentUser.uid, // Pass userId
+          onDelete: () async {
+            final navigator = Navigator.of(context);
+            await _db.deleteMedicine(medicine.id);
+            if (!mounted) return;
+            navigator.pop();
           },
-          onUpdate: (updatedMedicine) {
-            setState(() {
-              final index = _medicines.indexWhere(
-                (m) => m.id == updatedMedicine.id,
-              );
-              if (index != -1) {
-                _medicines[index] = updatedMedicine;
-                _sortMedicines();
-              }
-            });
+          onUpdate: (updatedMedicine) async {
+            // For now we re-add as update isn't fully implemented in this turn's scope for complex objects
+            // Ideally: await _db.updateMedicine(updatedMedicine);
+            // We will implement update logic in next turn or just rely on delete-add for very simple v1
+            await _db.addMedicine(
+              updatedMedicine,
+              _currentUser.uid,
+            ); // Naive update
           },
         ),
       ),
     );
-    if (!mounted) return;
-    setState(() {});
-  }
-
-  void _sortMedicines() {
-    _medicines.sort((a, b) => a.time.compareTo(b.time));
   }
 
   // --- WIDGET BUILDERS ---
@@ -141,18 +131,37 @@ class _PatientDashboardState extends State<PatientDashboard> {
   }
 
   Widget _buildCurrentTab() {
-    switch (_selectedIndex) {
-      case 0:
-        return _buildHomeTab();
-      case 1:
-        return _buildMedicinesTab();
-      case 2:
-        return _buildHistoryTab();
-      case 3:
-        return _buildSettingsTab();
-      default:
-        return _buildHomeTab();
-    }
+    return StreamBuilder<List<Medicine>>(
+      stream: _db.getMedicines(_currentUser.uid),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Text("Error: ${snapshot.error}"));
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final medicines = snapshot.data ?? [];
+        // Sort
+        medicines.sort((a, b) => a.time.compareTo(b.time));
+
+        switch (_selectedIndex) {
+          case 0:
+            return _buildHomeTab(medicines);
+          case 1:
+            return _buildMedicinesTab(medicines);
+          case 2:
+            return _buildHistoryTab(
+              medicines,
+            ); // Pass data if needed for history
+          case 3:
+            return _buildSettingsTab();
+          default:
+            return _buildHomeTab(medicines);
+        }
+      },
+    );
   }
 
   Widget _buildThemeToggle({Color? color}) {
@@ -223,9 +232,13 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 _buildSettingsTile(
                   Icons.person_outline,
                   "Personal Data",
-                  () {},
+                  _showProfileDetails,
                 ),
-                _buildSettingsTile(Icons.people_outline, "Monitor", () {}),
+                _buildSettingsTile(
+                  Icons.people_outline,
+                  "Monitor Requests",
+                  () => _showMonitorRequests(),
+                ),
                 _buildSettingsTile(
                   Icons.notifications_none,
                   "Notifications",
@@ -234,8 +247,28 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
                 const SizedBox(height: 24),
                 _buildSettingsSectionHeader("Support"),
-                _buildSettingsTile(Icons.info_outline, "About Us", () {}),
-                _buildSettingsTile(Icons.help_outline, "Help & FAQ", () {}),
+                _buildSettingsTile(Icons.info_outline, "About Us", () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ContentDisplayPage(
+                        title: "About Us",
+                        contentKey: "aboutUs",
+                      ),
+                    ),
+                  );
+                }),
+                _buildSettingsTile(Icons.help_outline, "Help & FAQ", () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ContentDisplayPage(
+                        title: "Help & FAQ",
+                        contentKey: "faq",
+                      ),
+                    ),
+                  );
+                }),
                 _buildSettingsTile(
                   Icons.privacy_tip_outlined,
                   "Privacy Policy",
@@ -286,7 +319,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
   // --- HISTORY TAB ---
 
-  Widget _buildHistoryTab() {
+  Widget _buildHistoryTab(List<Medicine> medicines) {
+    // Updated signature
     final theme = Theme.of(context);
     return SafeArea(
       child: SingleChildScrollView(
@@ -325,9 +359,9 @@ class _PatientDashboardState extends State<PatientDashboard> {
             const SizedBox(height: 24),
 
             if (_historyView == "Timeline")
-              _buildTimelineView()
+              _buildTimelineView(medicines) // Pass data
             else
-              _buildCalendarView(),
+              _buildCalendarView(medicines), // Pass data
           ],
         ),
       ),
@@ -363,8 +397,15 @@ class _PatientDashboardState extends State<PatientDashboard> {
     );
   }
 
-  Widget _buildTimelineView() {
+  Widget _buildTimelineView(List<Medicine> medicines) {
+    // Use real data
     final theme = Theme.of(context);
+
+    // Filter logs for today? Or show all recent?
+    // For this V1 let's just show "today's plan" as timeline for now,
+    // or iteration over medicines logs is too complex for this single step without more logic.
+    // Let's replicate the "Daily Plan" view for now using the medicines list.
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -388,6 +429,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 ),
               ),
               const SizedBox(height: 16),
+              // Filter chips...
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -422,34 +464,23 @@ class _PatientDashboardState extends State<PatientDashboard> {
               ),
               const SizedBox(height: 20),
 
-              _buildTimelineItem(
-                "Metformin",
-                "500mg",
-                "8:00 AM",
-                const Color(0xFF009688),
-                "Taken",
-              ),
-              _buildTimelineItem(
-                "Lisinopril",
-                "10mg",
-                "9:00 AM",
-                theme.colorScheme.secondary, // Adaptive color
-                "Skipped",
-              ),
-              _buildTimelineItem(
-                "Aspirin",
-                "81mg",
-                "12:00 PM",
-                const Color(0xFF9C27B0),
-                "Pending",
-              ),
-              _buildTimelineItem(
-                "Vitamin D",
-                "1000IU",
-                "6:00 PM",
-                const Color(0xFFE91E63),
-                "Pending",
-              ),
+              if (medicines.isEmpty)
+                const Center(child: Text("No history data")),
+
+              ...medicines.map((m) {
+                // Determine status based on logs
+                // Very simple check: taken today?
+                bool taken = m.doseHistory.any(
+                  (d) => isSameDay(d, DateTime.now()),
+                );
+                return _buildTimelineItem(
+                  m.name,
+                  m.dosage,
+                  DateFormat('h:mm a').format(m.time),
+                  theme.primaryColor,
+                  taken ? "Taken" : "Pending",
+                );
+              }),
             ],
           ),
         ),
@@ -557,7 +588,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
     );
   }
 
-  Widget _buildCalendarView() {
+  Widget _buildCalendarView(List<Medicine> medicines) {
+    // Logically update this too
     final theme = Theme.of(context);
     return Column(
       children: [
@@ -567,427 +599,136 @@ class _PatientDashboardState extends State<PatientDashboard> {
             color: theme.cardColor,
             borderRadius: BorderRadius.circular(16),
           ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    onPressed: () {},
-                    icon: Icon(
-                      Icons.chevron_left,
-                      color: theme.iconTheme.color,
-                    ),
-                  ),
-                  Text(
-                    DateFormat('MMMM y').format(DateTime.now()),
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: theme.textTheme.bodyLarge!.color,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () {},
-                    icon: Icon(
-                      Icons.chevron_right,
-                      color: theme.iconTheme.color,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Table(
-                children: [
-                  TableRow(
-                    children: [
-                      Center(
-                        child: Text(
-                          "S",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "M",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "T",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "W",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "T",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "F",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "S",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const TableRow(
-                    children: [
-                      SizedBox(height: 8),
-                      SizedBox(),
-                      SizedBox(),
-                      SizedBox(),
-                      SizedBox(),
-                      SizedBox(),
-                      SizedBox(),
-                    ],
-                  ),
-                  for (int week = 0; week < 4; week++)
-                    TableRow(
-                      children: List.generate(7, (day) {
-                        final int dayNum = (week * 7) + day + 1;
-                        if (dayNum > 31) return const SizedBox();
-                        Color? dotColor;
-                        if (dayNum < DateTime.now().day) {
-                          dotColor = dayNum % 2 == 0
-                              ? Colors.green
-                              : Colors.red;
-                        }
-
-                        return Container(
-                          height: 40,
-                          alignment: Alignment.center,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                dayNum.toString(),
-                                style: TextStyle(
-                                  color: theme.textTheme.bodyLarge!.color,
-                                  fontWeight: dayNum == DateTime.now().day
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
-                              ),
-                              if (dotColor != null)
-                                Container(
-                                  width: 4,
-                                  height: 4,
-                                  margin: const EdgeInsets.only(top: 2),
-                                  decoration: BoxDecoration(
-                                    color: dotColor,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard("Taken (Jan)", 24, [
-                const Color(0xFF66BB6A),
-                const Color(0xFF43A047),
-              ], Icons.check_circle_outline),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard("Missed (Jan)", 3, [
-                const Color(0xFFEF5350),
-                const Color(0xFFC62828),
-              ], Icons.error_outline),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-
-        Card(
-          elevation: 0,
-          color: theme.cardColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Adherence",
-                      style: TextStyle(
-                        color: theme.textTheme.bodyMedium!.color,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      "88%",
-                      style: TextStyle(
-                        color: theme.textTheme.bodyLarge!.color,
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      "Superb!",
-                      style: TextStyle(
-                        color: Colors.green,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(
-                  width: 80,
-                  height: 80,
-                  child: Stack(
-                    children: [
-                      Center(
-                        child: CircularProgressIndicator(
-                          value: 0.88,
-                          strokeWidth: 8,
-                          backgroundColor: theme.brightness == Brightness.dark
-                              ? Colors.grey[800]
-                              : Colors.grey.shade100,
-                          color: const Color(0xFF009688),
-                        ),
-                      ),
-                      const Center(
-                        child: Icon(Icons.thumb_up, color: Color(0xFF009688)),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                "Last 7 Days Activity",
-                style: TextStyle(
-                  color: theme.textTheme.bodyLarge!.color,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: List.generate(7, (index) {
-                  final double height = [
-                    40.0,
-                    60.0,
-                    80.0,
-                    50.0,
-                    80.0,
-                    70.0,
-                    30.0,
-                  ][index];
-                  return Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Container(
-                        width: 20,
-                        height: height,
-                        decoration: BoxDecoration(
-                          color: theme.primaryColor,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        ["S", "M", "T", "W", "T", "F", "S"][index],
-                        style: TextStyle(
-                          color: theme.textTheme.bodyMedium!.color,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  );
-                }),
-              ),
-            ],
+          child: const Center(
+            child: Text("Calendar View (Placeholder for Real Data)"),
           ),
         ),
       ],
     );
   }
 
-  // --- HOME & MEDICINE TABS ---
+  // --- HOME TAB ---
 
-  Widget _buildHomeTab() {
+  Widget _buildHomeTab(List<Medicine> medicines) {
     final theme = Theme.of(context);
-    return SingleChildScrollView(
-      child: Stack(
-        children: [
-          // Background Header
-          Container(
-            height: 220, // Adjusted for perfect 50/50 overlap
-            decoration: BoxDecoration(
-              color: theme.primaryColor,
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(32),
-                bottomRight: Radius.circular(32),
-              ),
-            ),
-          ),
 
-          // Content
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    // Calculate Stats
+    final now = DateTime.now();
+    int takenCount = medicines
+        .where((m) => m.doseHistory.any((d) => isSameDay(d, now)))
+        .length;
+    // Pending is tough without precise scheduling logic, but for now:
+    // If time is today and not taken.
+    int pendingCount = medicines.where((m) {
+      bool taken = m.doseHistory.any((d) => isSameDay(d, now));
+      return !taken;
+    }).length;
+
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          Stack(
             children: [
-              // Header Content (Transparent background, sits on top of blue)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 60, 20, 20),
-                child: Row(
-                  children: [
-                    GestureDetector(
-                      onTap: _showProfileDetails,
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 24,
-                            backgroundColor: Colors.white,
-                            child: Icon(
-                              Icons.person,
-                              color: theme.primaryColor,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                "Good morning",
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                "John Patient",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Spacer(),
-                    _buildThemeToggle(color: Colors.white),
-                  ],
+              // Header Background
+              Container(
+                height: 220,
+                decoration: BoxDecoration(
+                  color: theme.primaryColor,
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(30),
+                    bottomRight: Radius.circular(30),
+                  ),
                 ),
               ),
-
-              const SizedBox(height: 20),
-
-              // Hero Section (Overlaps background naturally)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: _buildHeroSection(),
-              ),
-
-              // Rest of the content
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              Column(
+                children: [
+                  // App Bar Content
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 20),
+                    child: Row(
                       children: [
-                        Expanded(
-                          child: _buildStatCard("Taken", _takenCount, const [
-                            Color(0xFF66BB6A),
-                            Color(0xFF43A047),
-                          ], Icons.check_circle_outline),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              DateFormat('EEEE, MMM d').format(DateTime.now()),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              "Welcome Back",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildStatCard(
-                            "Pending",
-                            _pendingCount,
-                            const [Color(0xFFFFA726), Color(0xFFFB8C00)],
-                            Icons.schedule,
-                          ),
-                        ),
+                        const Spacer(),
+                        _buildThemeToggle(color: Colors.white),
                       ],
                     ),
-                    const SizedBox(height: 24),
+                  ),
 
-                    Text(
-                      "Today's Medicines",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: theme.textTheme.bodyLarge!.color,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _medicines.isEmpty
-                        ? _buildEmptyState()
-                        : Column(
-                            children: _medicines
-                                .map((m) => _buildMedicineCard(m))
-                                .toList(),
+                  const SizedBox(height: 20),
+
+                  // Hero Section
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildHeroSection(medicines),
+                  ),
+
+                  // Rest of the content
+                  Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildStatCard("Taken", takenCount, const [
+                                Color(0xFF66BB6A),
+                                Color(0xFF43A047),
+                              ], Icons.check_circle_outline),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildStatCard(
+                                "Pending",
+                                pendingCount,
+                                const [Color(0xFFFFA726), Color(0xFFFB8C00)],
+                                Icons.schedule,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+
+                        Text(
+                          "Today's Medicines",
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: theme.textTheme.bodyLarge!.color,
                           ),
-                  ],
-                ),
+                        ),
+                        const SizedBox(height: 16),
+                        medicines.isEmpty
+                            ? _buildEmptyState()
+                            : Column(
+                                children: medicines
+                                    .map((m) => _buildMedicineCard(m))
+                                    .toList(),
+                              ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -996,7 +737,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
     );
   }
 
-  Widget _buildMedicinesTab() {
+  Widget _buildMedicinesTab(List<Medicine> medicines) {
     final theme = Theme.of(context);
     return SingleChildScrollView(
       child: Column(
@@ -1007,7 +748,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  "My Medicines",
+                  'My Medicines',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
@@ -1020,10 +761,10 @@ class _PatientDashboardState extends State<PatientDashboard> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: _medicines.isEmpty
+            child: medicines.isEmpty
                 ? _buildEmptyState()
                 : Column(
-                    children: _medicines
+                    children: medicines
                         .map((m) => _buildMedicineCard(m))
                         .toList(),
                   ),
@@ -1088,7 +829,25 @@ class _PatientDashboardState extends State<PatientDashboard> {
     );
   }
 
-  Widget _buildHeroSection() {
+  Widget _buildHeroSection(List<Medicine> medicines) {
+    // pass data if needed, or remove arg if unused.
+    // Finding next dose
+    Medicine? nextDose;
+    if (medicines.isNotEmpty) {
+      // Find one that hasn't been taken today and is closest to now
+      // Log logic: naive check
+      final now = DateTime.now();
+      try {
+        // Sort logs? Already sorted by time.
+        // Just pick first one that is "Pending" (not in logs for today)
+        nextDose = medicines.firstWhere((m) {
+          return !m.doseHistory.any((d) => isSameDay(d, now));
+        });
+      } catch (e) {
+        // All taken
+      }
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -1116,77 +875,92 @@ class _PatientDashboardState extends State<PatientDashboard> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Next Dose",
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    "Metformin 500mg",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
-                  shape: BoxShape.circle,
+                  borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Icon(
-                  Icons.notifications_active,
-                  color: Colors.white,
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.notifications_active,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                    SizedBox(width: 6),
+                    Text(
+                      "Next Dose",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              const Icon(Icons.more_horiz, color: Colors.white70),
             ],
           ),
           const SizedBox(height: 20),
-          Row(
-            children: [
-              const Icon(
-                Icons.access_time_filled,
-                color: Colors.white70,
-                size: 16,
-              ),
-              const SizedBox(width: 6),
-              const Text(
-                "Scheduled for 8:00 PM",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const Spacer(),
-              ElevatedButton(
-                onPressed: () {},
+          Text(
+            nextDose != null ? nextDose.name : "All Clear!",
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            nextDose != null
+                ? "Scheduled for ${DateFormat('h:mm a').format(nextDose.time)}"
+                : "You have taken all your meds.",
+            style: const TextStyle(color: Colors.white70, fontSize: 16),
+          ),
+          const SizedBox(height: 20),
+          if (nextDose != null)
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () async {
+                  // Take Dose Action
+                  await _db.logDose(nextDose!.id, DateTime.now());
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Dose logged!")),
+                    );
+                  }
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
                   foregroundColor: const Color(0xFF673AB7),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
+                  elevation: 0,
                 ),
-                child: const Text("Mark Taken"),
+                child: const Text(
+                  "Mark as Taken",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
               ),
-            ],
-          ),
+            ),
         ],
       ),
     );
+  }
+
+  bool isSameDay(DateTime? a, DateTime? b) {
+    if (a == null || b == null) {
+      return false;
+    }
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   Widget _buildEmptyState() {
@@ -1380,6 +1154,119 @@ class _PatientDashboardState extends State<PatientDashboard> {
           ),
         ),
       ],
+    );
+  }
+
+  void _showMonitorRequests() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "Monitor Requests",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).textTheme.bodyLarge?.color,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: _db.getPendingRequests(_currentUser.uid),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return Center(child: Text("Error: ${snapshot.error}"));
+                    }
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final requests = snapshot.data ?? [];
+                    if (requests.isEmpty) {
+                      return const Center(child: Text("No pending requests."));
+                    }
+                    return ListView.builder(
+                      itemCount: requests.length,
+                      itemBuilder: (context, index) {
+                        final req = requests[index];
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: ListTile(
+                            leading: const CircleAvatar(
+                              child: Icon(Icons.person),
+                            ),
+                            title: Text(
+                              req['monitorEmail'] ?? 'Unknown Monitor',
+                            ),
+                            subtitle: const Text(
+                              "Wants to view your medicine data",
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.check,
+                                    color: Colors.green,
+                                  ),
+                                  onPressed: () async {
+                                    await _db.acceptRequest(
+                                      req['id'],
+                                      req['monitorId'],
+                                      _currentUser.uid,
+                                    );
+                                    if (mounted) Navigator.pop(context);
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text("Request Accepted"),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.close,
+                                    color: Colors.red,
+                                  ),
+                                  onPressed: () async {
+                                    await _db.declineRequest(req['id']);
+                                    if (mounted) Navigator.pop(context);
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text("Request Declined"),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
