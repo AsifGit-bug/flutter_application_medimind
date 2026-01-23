@@ -31,6 +31,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
       MaterialPageRoute(builder: (context) => const AddMedicinePage()),
     );
 
+    if (!mounted) return;
+
     if (result != null && result is Medicine) {
       setState(() {
         _medicines.add(result);
@@ -72,6 +74,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
         ),
       ),
     );
+    if (!mounted) return;
     setState(() {});
   }
 
@@ -92,7 +95,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
           color: theme.cardColor,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, -5),
             ),
@@ -484,7 +487,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
         border: Border.all(color: theme.dividerColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -511,7 +514,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: color.withOpacity(0.1),
+                        color: color.withValues(alpha: 0.1),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(Icons.medication, color: color, size: 20),
@@ -1049,7 +1052,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
         ),
         boxShadow: [
           BoxShadow(
-            color: gradientColors.last.withOpacity(0.4),
+            color: gradientColors.last.withValues(alpha: 0.4),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1101,7 +1104,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF673AB7).withOpacity(0.4),
+            color: const Color(0xFF673AB7).withValues(alpha: 0.4),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -1137,7 +1140,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
+                  color: Colors.white.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -1223,7 +1226,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -1234,7 +1237,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: theme.primaryColor.withOpacity(0.1),
+                color: theme.primaryColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(Icons.medical_services, color: theme.primaryColor),
@@ -1266,7 +1269,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
+                color: Colors.orange.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
@@ -1307,8 +1310,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: theme.brightness == Brightness.dark
-              ? Colors.grey.withOpacity(0.1)
-              : Colors.grey.withOpacity(0.1),
+              ? Colors.grey.withValues(alpha: 0.1)
+              : Colors.grey.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(icon, color: theme.primaryColor, size: 20),

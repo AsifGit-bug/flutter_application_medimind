@@ -141,7 +141,7 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
               // Frequency
               _buildLabel("Frequency"),
               DropdownButtonFormField<String>(
-                value: _frequency,
+                initialValue: _frequency,
                 decoration: _inputDecoration("Select Frequency", Icons.repeat),
                 items: ['Daily', 'Twice a day', 'Weekly', 'As needed']
                     .map(
@@ -180,7 +180,7 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryBlue,
                     elevation: 5,
-                    shadowColor: primaryBlue.withOpacity(0.4),
+                    shadowColor: primaryBlue.withValues(alpha: 0.4),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
