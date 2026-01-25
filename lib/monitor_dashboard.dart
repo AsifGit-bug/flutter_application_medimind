@@ -3,11 +3,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'login_page.dart';
 import 'medicine_model.dart';
 import 'medicine_detail_page.dart';
-import 'add_medicine_page.dart';
 import 'theme_manager.dart';
 import 'services/database_service.dart';
 import 'content_display_page.dart';
 import 'services/auth_service.dart';
+import 'report_bug_page.dart';
 
 class MonitorDashboard extends StatefulWidget {
   const MonitorDashboard({super.key});
@@ -120,11 +120,11 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           "Monitor Dashboard",
-          style: TextStyle(color: Colors.black),
+          style: TextStyle(color: theme.textTheme.bodyLarge?.color),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: theme.scaffoldBackgroundColor,
         elevation: 0,
         actions: [
           IconButton(
@@ -206,6 +206,97 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     );
   }
 
+  // Edit Nickname Bottom Sheet
+  void _showEditNicknameSheet(String patientId, String currentName) {
+    final TextEditingController _nicknameController = TextEditingController(
+      text: currentName,
+    );
+    final theme = Theme.of(context);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: theme.scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+          top: 20,
+          left: 20,
+          right: 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Set Nickname",
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: theme.textTheme.bodyLarge?.color,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Give this patient a private nickname only you can see.",
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _nicknameController,
+              autofocus: true,
+              style: TextStyle(color: theme.textTheme.bodyLarge?.color),
+              decoration: InputDecoration(
+                labelText: "Nickname",
+                hintText: "e.g., Mom, Dad",
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: theme.cardColor,
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  if (_currentUser != null) {
+                    await _db.updatePatientNickname(
+                      _currentUser!.uid,
+                      patientId,
+                      _nicknameController.text.trim(),
+                    );
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text("Save Nickname"),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildPatientCard(Map<String, dynamic> patient) {
     final theme = Theme.of(context);
     final int medCount = patient['medicineCount'] ?? 0;
@@ -213,10 +304,15 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     final int adherence = 0;
     final int missed = 0;
 
+    String displayName = patient['nickname'] ?? patient['name'] ?? 'Unknown';
+    bool hasNickname =
+        patient['nickname'] != null && patient['nickname'].isNotEmpty;
+
     return Card(
-      elevation: 4,
-      margin: const EdgeInsets.only(bottom: 20),
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: theme.cardColor,
       child: InkWell(
         onTap: () => Navigator.push(
           context,
@@ -226,23 +322,27 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         ),
         borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
           child: Column(
             children: [
               Row(
                 children: [
-                  CircleAvatar(
-                    radius: 30,
-                    backgroundColor: theme.primaryColor.withValues(alpha: 0.1),
-                    child: Text(
-                      (patient['name'] is String &&
-                              (patient['name'] as String).isNotEmpty)
-                          ? patient['name'][0]
-                          : '?',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: theme.primaryColor,
+                  Hero(
+                    tag: 'avatar_${patient['id']}',
+                    child: CircleAvatar(
+                      radius: 28,
+                      backgroundColor: theme.primaryColor.withValues(
+                        alpha: 0.1,
+                      ),
+                      child: Text(
+                        displayName.isNotEmpty
+                            ? displayName[0].toUpperCase()
+                            : '?',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: theme.primaryColor,
+                        ),
                       ),
                     ),
                   ),
@@ -251,30 +351,96 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          patient['name'] ?? 'Unknown',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                displayName,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.textTheme.bodyLarge?.color,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
+                        if (hasNickname)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              patient['name'] ?? '',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[500],
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 4),
                         Text(
                           patient['email'] ?? 'No Email',
                           style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
+                            fontSize: 13,
+                            color: theme.textTheme.bodyMedium?.color
+                                ?.withValues(alpha: 0.7),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    onPressed: () => _removePatient(patient['id']),
+                  PopupMenuButton<String>(
+                    icon: Icon(Icons.more_vert, color: Colors.grey[600]),
+                    onSelected: (value) {
+                      if (value == 'nickname') {
+                        _showEditNicknameSheet(
+                          patient['id'],
+                          patient['nickname'] ?? '',
+                        );
+                      } else if (value == 'delete') {
+                        _removePatient(patient['id']);
+                      }
+                    },
+                    itemBuilder: (BuildContext context) =>
+                        <PopupMenuEntry<String>>[
+                          const PopupMenuItem<String>(
+                            value: 'nickname',
+                            child: Row(
+                              children: [
+                                Icon(Icons.edit, size: 20),
+                                SizedBox(width: 12),
+                                Text('Set Nickname'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem<String>(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.delete_outline,
+                                  size: 20,
+                                  color: Colors.red,
+                                ),
+                                SizedBox(width: 12),
+                                Text(
+                                  'Remove Patient',
+                                  style: TextStyle(color: Colors.red),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
+              Divider(
+                height: 1,
+                color: theme.dividerColor.withValues(alpha: 0.5),
+              ),
+              const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
@@ -322,7 +488,10 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           title: const Text("Report an Issue"),
           trailing: const Icon(Icons.arrow_forward_ios, size: 16),
           onTap: () {
-            // Report issue
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ReportBugPage()),
+            );
           },
         ),
         ListTile(
@@ -413,38 +582,7 @@ class _PatientDetailViewState extends State<PatientDetailView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-  }
-
-  void _addMedicine() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AddMedicinePage(userId: widget.patient['id']),
-      ),
-    );
-    // Stream will update view
-  }
-
-  void _editMedicine(Medicine medicine) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => MedicineDetailPage(
-          medicine: medicine,
-          userId: widget.patient['id'],
-          onDelete: () async {
-            await _db.deleteMedicine(medicine.id);
-            if (!mounted) return;
-            Navigator.pop(context);
-          },
-          onUpdate: (updated) async {
-            // Re-add to update
-            await _db.addMedicine(updated, widget.patient['id']);
-          },
-        ),
-      ),
-    );
+    _tabController = TabController(length: 2, vsync: this);
   }
 
   @override
@@ -455,8 +593,14 @@ class _PatientDetailViewState extends State<PatientDetailView>
         title: Column(
           children: [
             Text(
-              widget.patient['name'] ?? 'Unknown',
-              style: const TextStyle(color: Colors.black, fontSize: 16),
+              widget.patient['nickname'] != null &&
+                      widget.patient['nickname'].isNotEmpty
+                  ? widget.patient['nickname']
+                  : widget.patient['name'] ?? 'Unknown',
+              style: TextStyle(
+                color: theme.textTheme.bodyLarge?.color,
+                fontSize: 16,
+              ),
             ),
             const Text(
               "Monitoring",
@@ -464,110 +608,23 @@ class _PatientDetailViewState extends State<PatientDetailView>
             ),
           ],
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: theme.scaffoldBackgroundColor,
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.black),
+        iconTheme: theme.iconTheme,
         bottom: TabBar(
           controller: _tabController,
           labelColor: theme.primaryColor,
           unselectedLabelColor: Colors.grey,
           indicatorColor: theme.primaryColor,
           tabs: const [
-            Tab(text: "Overview"),
-            Tab(text: "Medicines"),
-            Tab(text: "History"),
+            Tab(text: "Today's Medicines"),
+            Tab(text: "7 Days History"),
           ],
         ),
-        actions: [
-          IconButton(
-            onPressed: _addMedicine,
-            icon: const Icon(Icons.add_circle_outline),
-          ),
-        ],
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _buildOverviewTab(),
-          _buildMedicinesTab(),
-          _buildHistoryTab(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOverviewTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Today's Activity",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          // We can't easily get count without stream or fetching.
-          // For now, these are placeholders or could be wrapped in stream builder too.
-          _buildStatusCard("Taken", 0, Colors.green, Icons.check_circle),
-          const SizedBox(height: 12),
-          _buildStatusCard("Missed", 0, Colors.red, Icons.warning),
-          const SizedBox(height: 12),
-          _buildStatusCard("Pending", 0, Colors.orange, Icons.schedule),
-
-          const SizedBox(height: 32),
-          const Text(
-            "Weekly Adherence",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            height: 200,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Center(child: Text("Adherence Chart Placeholder")),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusCard(String label, int count, Color color, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 30),
-          const SizedBox(width: 16),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-          ),
-          const Spacer(),
-          Text(
-            "$count",
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ],
+        children: [_buildMedicinesTab(), _buildHistoryTab()],
       ),
     );
   }
@@ -583,11 +640,13 @@ class _PatientDetailViewState extends State<PatientDetailView>
           return const Center(child: CircularProgressIndicator());
         }
 
-        final medicines = snapshot.data ?? [];
+        final allMedicines = snapshot.data ?? [];
+        // Filter for Today
+        final medicines = allMedicines.where(_isMedicineForToday).toList();
         medicines.sort((a, b) => a.time.compareTo(b.time));
 
         if (medicines.isEmpty) {
-          return const Center(child: Text("No medicines yet."));
+          return const Center(child: Text("No medicines scheduled for today."));
         }
 
         return ListView.builder(
@@ -615,7 +674,22 @@ class _PatientDetailViewState extends State<PatientDetailView>
                 ),
                 subtitle: Text("${medicine.dosage} • ${medicine.frequency}"),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => _editMedicine(medicine),
+                // Show details (Read-only)
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => MedicineDetailPage(
+                        medicine: medicine,
+                        userId: widget.patient['id'],
+                        isReadOnly: true,
+                        // Callbacks can be null or empty since it is read-only
+                        onDelete: null,
+                        onUpdate: null,
+                      ),
+                    ),
+                  );
+                },
               ),
             );
           },
@@ -624,22 +698,71 @@ class _PatientDetailViewState extends State<PatientDetailView>
     );
   }
 
+  bool _isMedicineForToday(Medicine medicine) {
+    if (medicine.frequency == 'Daily' ||
+        medicine.frequency == 'Twice a day' ||
+        medicine.frequency == 'As needed') {
+      return true;
+    }
+    if (medicine.frequency == 'Weekly') {
+      return DateTime.now().weekday == medicine.time.weekday;
+    }
+    return true;
+  }
+
   Widget _buildHistoryTab() {
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        const Text(
-          "Timeline (Read Only)",
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.grey,
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Placeholder
-        const Text("Real-time history coming soon."),
-      ],
+    return StreamBuilder<List<Medicine>>(
+      stream: _db.getMedicines(widget.patient['id']),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final medicines = snapshot.data!;
+        final cutoff = DateTime.now().subtract(const Duration(days: 7));
+
+        // Flatten and Filter History
+        List<Map<String, dynamic>> historyItems = [];
+        for (var med in medicines) {
+          for (var doseTime in med.doseHistory) {
+            if (doseTime.isAfter(cutoff)) {
+              historyItems.add({
+                'name': med.name,
+                'time': doseTime,
+                'status': 'Taken',
+              });
+            }
+          }
+        }
+
+        historyItems.sort(
+          (a, b) => (b['time'] as DateTime).compareTo(a['time'] as DateTime),
+        );
+
+        if (historyItems.isEmpty) {
+          return const Center(child: Text("No history in last 7 days."));
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(20),
+          itemCount: historyItems.length,
+          itemBuilder: (context, index) {
+            final item = historyItems[index];
+            final DateTime time = item['time'];
+            return Card(
+              elevation: 1,
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: const Icon(Icons.check_circle, color: Colors.green),
+                title: Text(
+                  item['name'],
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text("Taken on ${time.toString().split('.')[0]}"),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

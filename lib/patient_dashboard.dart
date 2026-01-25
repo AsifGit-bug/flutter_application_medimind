@@ -9,6 +9,7 @@ import 'theme_manager.dart';
 import 'services/database_service.dart';
 import 'services/auth_service.dart';
 import 'content_display_page.dart';
+import 'report_bug_page.dart';
 
 class PatientDashboard extends StatefulWidget {
   const PatientDashboard({super.key});
@@ -247,6 +248,14 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
                 const SizedBox(height: 24),
                 _buildSettingsSectionHeader("Support"),
+                _buildSettingsTile(Icons.bug_report, "Report an Issue", () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ReportBugPage(),
+                    ),
+                  );
+                }),
                 _buildSettingsTile(Icons.info_outline, "About Us", () {
                   Navigator.push(
                     context,

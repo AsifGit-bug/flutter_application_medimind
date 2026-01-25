@@ -316,6 +316,26 @@ class _LoginPageState extends State<LoginPage> {
             } else {
               role = userData['role'] ?? 'patient';
             }
+
+            // --- CRITICAL: CHECK IF BANNED ---
+            // Admins are exempt from bans (or handle differently)
+            bool isActive = userData?['active'] ?? true;
+            if (!isActive) {
+              await _authService.signOut(); // Force logout
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      "Your account has been suspended. Please contact support.",
+                    ),
+                    backgroundColor: Colors.red,
+                    duration: Duration(seconds: 5),
+                  ),
+                );
+                setState(() => _isLoading = false);
+                return; // Stop execution
+              }
+            }
           }
 
           if (mounted) {

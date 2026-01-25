@@ -13,10 +13,10 @@ class AdminDashboard extends StatefulWidget {
 
 class _AdminDashboardState extends State<AdminDashboard> {
   int _selectedIndex = 0;
+  bool _showAdmins = false;
+  bool _showTotalUsers = false;
 
   // No Mock Users List anymore
-
-  final List<Map<String, dynamic>> _issues = [];
 
   // Content Management Controllers
   final TextEditingController _aboutUsController = TextEditingController();
@@ -125,14 +125,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
               icon: Icon(Icons.dashboard),
               label: "Overview",
             ),
-            BottomNavigationBarItem(icon: Icon(Icons.people), label: "Users"),
-            // Removed Reports/Issues tabs which were heavily mock-reliant to simplify for now,
-            // or we can keep them but they won't have real data yet.
-            // Let's keep them but pass 'users' to them if needed.
-            BottomNavigationBarItem(
-              icon: Icon(Icons.analytics),
-              label: "Reports",
-            ),
             BottomNavigationBarItem(
               icon: Icon(Icons.bug_report),
               label: "Issues",
@@ -152,12 +144,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
       case 0:
         return "System Overview";
       case 1:
-        return "User Management";
-      case 2:
-        return "Reports & Analysis";
-      case 3:
         return "Issue Management";
-      case 4:
+      case 2:
         return "Content Management";
       default:
         return "Admin Dashboard";
@@ -169,12 +157,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
       case 0:
         return _buildOverviewTab(users);
       case 1:
-        return _buildUsersTab(users);
-      case 2:
-        return _buildReportsTab();
-      case 3:
         return _buildIssuesTab();
-      case 4:
+      case 2:
         return _buildContentTab();
       default:
         return returnContainer();
@@ -184,361 +168,493 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget returnContainer() => Container();
 
   // --- 1. System Overview ---
+  // --- 1. System Overview ---
   Widget _buildOverviewTab(List<Map<String, dynamic>> users) {
-    // Calculate Stats Real-time
-    final activeUsers = users
-        .where((u) => u['active'] == true)
-        .length; // Needs 'active' field in DB or default true
-    final inactiveUsers = users.length - activeUsers;
-    final patients = users
-        .where((u) => u['role']?.toString().toLowerCase() == "patient")
-        .length;
-    final monitors = users
-        .where(
-          (u) =>
-              u['role']?.toString().toLowerCase() == "monitor" ||
-              u['role']?.toString().toLowerCase() == "guardian",
-        )
-        .length;
+    // Filter Lists
+    final admins = users
+        .where((u) => u['role']?.toString().toLowerCase() == "admin")
+        .take(3)
+        .toList();
+
+    final normalUsers = users
+        .where((u) => u['role']?.toString().toLowerCase() != "admin")
+        .toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildStatCard(
-            "Total Users",
-            users.length.toString(),
-            Icons.group,
-            Colors.blue,
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatCard(
-                  "Active",
-                  activeUsers.toString(),
-                  Icons.check_circle,
-                  Colors.green,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildStatCard(
-                  "Inactive",
-                  inactiveUsers.toString(),
-                  Icons.cancel,
-                  Colors.grey,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatCard(
-                  "Patients",
-                  patients.toString(),
-                  Icons.medical_services,
-                  Colors.teal,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildStatCard(
-                  "Monitors",
-                  monitors.toString(),
-                  Icons.remove_red_eye,
-                  Colors.orange,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
           Text(
-            "Recent Activity",
+            "System Overview",
             style: Theme.of(
               context,
-            ).textTheme.titleLarge?.copyWith(fontSize: 18),
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 12),
-          // Mock activity removed to avoid confusion
-          Container(
-            padding: const EdgeInsets.all(16),
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              borderRadius: BorderRadius.circular(12),
+          const SizedBox(height: 20),
+
+          // --- STATS CARDS ROW ---
+          Row(
+            children: [
+              // Admins Card
+              Expanded(
+                child: _buildInteractiveCard(
+                  title: "Admins",
+                  count: admins.length.toString(),
+                  icon: Icons.admin_panel_settings,
+                  color: Colors.purple,
+                  isSelected: _showAdmins,
+                  onTap: () {
+                    setState(() {
+                      _showAdmins = !_showAdmins;
+                      // Optional: Auto-close others if we want accordion style
+                      // _showTotalUsers = false;
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Total Users Card
+              Expanded(
+                child: _buildInteractiveCard(
+                  title: "Total Users",
+                  count: normalUsers.length.toString(),
+                  icon: Icons.group,
+                  color: Colors.blue,
+                  isSelected: _showTotalUsers,
+                  onTap: () {
+                    setState(() {
+                      _showTotalUsers = !_showTotalUsers;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          // --- ADMINS LIST ---
+          if (_showAdmins) ...[
+            Text(
+              "Administrative Staff",
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            child: const Text(
-              "Real-time logs coming soon...",
-              style: TextStyle(color: Colors.grey),
-              textAlign: TextAlign.center,
+            const SizedBox(height: 12),
+            if (admins.isEmpty)
+              const Text("No admins found")
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: admins.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final admin = admins[index];
+                  return Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.purple.withValues(alpha: 0.1),
+                        child: Icon(
+                          Icons.admin_panel_settings,
+                          color: Colors.purple,
+                        ),
+                      ),
+                      title: Text(
+                        admin['name'] ?? 'Unknown Admin',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () => _showAdminDetails(admin),
+                    ),
+                  );
+                },
+              ),
+            const SizedBox(height: 24),
+          ],
+
+          // --- USERS LIST ---
+          if (_showTotalUsers) ...[
+            Text(
+              "Registered Users",
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
+            const SizedBox(height: 12),
+            if (normalUsers.isEmpty)
+              const Text("No users found")
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: normalUsers.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final user = normalUsers[index];
+                  final bool isActive = user['active'] ?? true;
+                  final name = user['name'] ?? 'Unknown';
+                  final email = user['email'] ?? 'No Email';
+                  final initial = name.isNotEmpty ? name[0] : '?';
+
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: Theme.of(
+                            context,
+                          ).primaryColor.withValues(alpha: 0.1),
+                          child: Text(
+                            initial,
+                            style: TextStyle(
+                              color: Theme.of(context).primaryColor,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(
+                                    context,
+                                  ).textTheme.bodyLarge?.color,
+                                ),
+                              ),
+                              Text(
+                                email,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(
+                                    context,
+                                  ).textTheme.bodyMedium?.color,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          children: [
+                            Switch(
+                              value: isActive,
+                              onChanged: (val) async {
+                                await DatabaseService().toggleUserActiveStatus(
+                                  user['id'],
+                                  val,
+                                );
+                              },
+                              activeTrackColor: Colors.green,
+                              activeColor: Colors.white,
+                            ),
+                            Text(
+                              isActive ? "Active" : "Banned",
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: isActive ? Colors.green : Colors.red,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInteractiveCard({
+    required String title,
+    required String count,
+    required IconData icon,
+    required Color color,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.1) : theme.cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: isSelected
+              ? Border.all(color: color, width: 2)
+              : Border.all(color: Colors.transparent, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? color.withValues(alpha: 0.2)
+                    : color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              count,
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: theme.textTheme.bodyLarge?.color,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.textTheme.bodyMedium?.color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAdminDetails(Map<String, dynamic> admin) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: Colors.purple.withValues(alpha: 0.1),
+              child: const Icon(
+                Icons.admin_panel_settings,
+                color: Colors.purple,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text("Admin Details"),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _detailRow("Name", admin['name']),
+            const SizedBox(height: 12),
+            _detailRow("Email", admin['email']),
+            const SizedBox(height: 12),
+            _detailRow("Role", "System Administrator"),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+  Widget _detailRow(String label, String? value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.grey,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: theme.textTheme.bodyLarge?.color,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 14,
-              color: theme.textTheme.bodyMedium?.color,
-            ),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+        Text(value ?? "N/A", style: const TextStyle(fontSize: 16)),
+      ],
     );
   }
 
   // --- 2. User Management ---
-  Widget _buildUsersTab(List<Map<String, dynamic>> users) {
-    if (users.isEmpty) {
-      return const Center(child: Text("No users found"));
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(20),
-      itemCount: users.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final user = users[index];
-        final bool isActive = user['active'] ?? true;
-        final theme = Theme.of(context);
-        final name = user['name'] ?? 'Unknown';
-        final initial = name.isNotEmpty ? name[0] : '?';
-
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: theme.primaryColor.withValues(alpha: 0.1),
-                child: Text(
-                  initial,
-                  style: TextStyle(color: theme.primaryColor),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: theme.textTheme.bodyLarge?.color,
-                      ),
-                    ),
-                    Text(
-                      user['role'] ?? 'Unknown Role',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.textTheme.bodyMedium?.color,
-                      ),
-                    ),
-                    Text(
-                      user['email'] ?? 'No Email',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.textTheme.bodyMedium?.color,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Make switch read-only or implement update logic later
-              Switch(
-                value: isActive,
-                onChanged: (val) async {
-                  await DatabaseService().toggleUserActiveStatus(
-                    user['id'],
-                    val,
-                  );
-                },
-                activeTrackColor: Colors.green,
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildReportsTab() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.bar_chart, size: 80, color: Colors.blueGrey[200]),
-          const SizedBox(height: 16),
-          const Text(
-            "Reports & Analysis coming soon",
-            style: TextStyle(fontSize: 18, color: Colors.grey),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            "Once users start tracking medicines, charts will appear here.",
-            style: TextStyle(fontSize: 14, color: Colors.grey),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildIssuesTab() {
-    if (_issues.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.check_circle_outline, size: 80, color: Colors.green),
-            const SizedBox(height: 16),
-            const Text(
-              "No issues reported",
-              style: TextStyle(fontSize: 18, color: Colors.grey),
-            ),
-          ],
-        ),
-      );
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(20),
-      itemCount: _issues.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final issue = _issues[index];
-        final theme = Theme.of(context);
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: DatabaseService().getAllBugs(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text("Error: ${snapshot.error}"));
+        }
 
-        Color statusColor = Colors.grey;
-        if (issue['status'] == 'Open') statusColor = Colors.red;
-        if (issue['status'] == 'In Progress') statusColor = Colors.orange;
-        if (issue['status'] == 'Resolved') statusColor = Colors.green;
+        final bugs = snapshot.data ?? [];
 
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border(left: BorderSide(color: statusColor, width: 4)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    issue['title'],
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: theme.textTheme.bodyLarge?.color,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      issue['status'],
-                      style: TextStyle(
-                        color: statusColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                "Reported by ${issue['user']} on ${issue['date']}",
-                style: TextStyle(
-                  fontSize: 12,
-                  color: theme.textTheme.bodyMedium?.color,
+        if (bugs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.check_circle_outline, size: 80, color: Colors.green),
+                const SizedBox(height: 16),
+                const Text(
+                  "No issues reported",
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  if (issue['status'] != 'Resolved')
-                    TextButton(
-                      child: const Text("Mark Resolved"),
-                      onPressed: () {
-                        setState(() {
-                          issue['status'] = "Resolved";
-                        });
-                      },
-                    ),
-                  if (issue['status'] == 'Open')
-                    TextButton(
-                      child: const Text("Mark In Progress"),
-                      onPressed: () {
-                        setState(() {
-                          issue['status'] = "In Progress";
-                        });
-                      },
-                    ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(20),
+          itemCount: bugs.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final bug = bugs[index];
+            final theme = Theme.of(context);
+            final bool isResolved = bug['status'] == 'Resolved';
+            final Color statusColor = isResolved ? Colors.green : Colors.red;
+
+            return Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.cardColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border(left: BorderSide(color: statusColor, width: 4)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
                 ],
               ),
-            ],
-          ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          bug['title'] ?? 'No Title',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: theme.textTheme.bodyLarge?.color,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          bug['status'] ?? 'Open',
+                          style: TextStyle(
+                            color: statusColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    bug['description'] ?? 'No Description',
+                    style: TextStyle(color: theme.textTheme.bodyLarge?.color),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    "Reported by ${bug['userEmail']} on ${bug['date']}",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.textTheme.bodyMedium?.color,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      // Delete Button
+                      IconButton(
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () async {
+                          // Confirm delete logic could go here, for now quick delete
+                          await DatabaseService().deleteBug(bug['id']);
+                        },
+                      ),
+                      // Mark Done Button
+                      if (!isResolved) ...[
+                        const SizedBox(width: 8),
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            await DatabaseService().resolveBug(bug['id']);
+                          },
+                          icon: const Icon(Icons.check, size: 16),
+                          label: const Text("Mark Done"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );

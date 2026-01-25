@@ -5,16 +5,18 @@ import 'add_medicine_page.dart';
 
 class MedicineDetailPage extends StatefulWidget {
   final Medicine medicine;
-  final VoidCallback onDelete;
-  final Function(Medicine) onUpdate;
+  final VoidCallback? onDelete;
+  final Function(Medicine)? onUpdate;
   final String userId;
+  final bool isReadOnly;
 
   const MedicineDetailPage({
     super.key,
     required this.medicine,
-    required this.onDelete,
-    required this.onUpdate,
+    this.onDelete,
+    this.onUpdate,
     required this.userId,
+    this.isReadOnly = false,
   });
 
   @override
@@ -28,6 +30,7 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
   final Color bgWithBlueTint = const Color(0xFFF0F4F8);
 
   void _navigateToEdit() async {
+    if (widget.isReadOnly) return;
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -36,13 +39,14 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
       ),
     );
 
-    if (result != null && result is Medicine) {
-      widget.onUpdate(result);
+    if (result != null && result is Medicine && widget.onUpdate != null) {
+      widget.onUpdate!(result);
       setState(() {}); // Rebuild local view
     }
   }
 
   void _confirmDelete() {
+    if (widget.isReadOnly || widget.onDelete == null) return;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -56,7 +60,7 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
           TextButton(
             onPressed: () {
               Navigator.pop(context); // Close dialog
-              widget.onDelete(); // Trigger delete callback
+              widget.onDelete!(); // Trigger delete callback
             },
             child: const Text("Delete", style: TextStyle(color: Colors.red)),
           ),
@@ -81,16 +85,18 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
           icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit, color: Colors.blueGrey),
-            onPressed: _navigateToEdit,
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.red),
-            onPressed: _confirmDelete,
-          ),
-        ],
+        actions: widget.isReadOnly
+            ? null
+            : [
+                IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.blueGrey),
+                  onPressed: _navigateToEdit,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: _confirmDelete,
+                ),
+              ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),

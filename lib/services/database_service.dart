@@ -58,7 +58,7 @@ class DatabaseService {
         data['name'] = data['name'] ?? 'Unknown';
         data['email'] = data['email'] ?? 'No Email';
         data['role'] = data['role'] ?? 'patient';
-        data['active'] = true; // Default to true unless we add ban logic
+        data['active'] = data['active'] ?? true;
         // Convert timestamp to string if needed, or keep as is
         return data;
       }).toList();
@@ -243,10 +243,22 @@ class DatabaseService {
   Future<void> unlinkPatient(String monitorId, String patientId) async {
     await _firestore.collection('users').doc(monitorId).update({
       'linkedPatients': FieldValue.arrayRemove([patientId]),
+      'patientNicknames.$patientId': FieldValue.delete(),
     });
     await _firestore.collection('users').doc(patientId).update({
       'caregivers': FieldValue.arrayRemove([monitorId]),
     });
+  }
+
+  // 6. Update Patient Nickname
+  Future<void> updatePatientNickname(
+    String monitorId,
+    String patientId,
+    String nickname,
+  ) async {
+    await _firestore.collection('users').doc(monitorId).set({
+      'patientNicknames': {patientId: nickname},
+    }, SetOptions(merge: true));
   }
 
   // Get Linked Patients Stream
@@ -259,11 +271,11 @@ class DatabaseService {
       Map<String, dynamic> data =
           monitorSnapshot.data() as Map<String, dynamic>;
       List<dynamic> linkedIds = data['linkedPatients'] ?? [];
+      Map<String, dynamic> nicknames = data['patientNicknames'] ?? {};
 
       if (linkedIds.isEmpty) return [];
 
       // Fetch details for each patient
-      // Note: In a real app, optimize this to avoid N+1 reads or use a collection group if possible
       List<Map<String, dynamic>> patients = [];
       for (String pid in linkedIds) {
         DocumentSnapshot pDoc = await _firestore
@@ -273,8 +285,9 @@ class DatabaseService {
         if (pDoc.exists) {
           Map<String, dynamic> pData = pDoc.data() as Map<String, dynamic>;
           pData['id'] = pid; // Ensure ID is attached
+          pData['nickname'] = nicknames[pid]; // Attach nickname if exists
+
           // Calculate stats (Mock logic or real aggregation)
-          // For now, let's fetch their medicines count to show *something* real
           QuerySnapshot meds = await _firestore
               .collection('medicines')
               .where('userId', isEqualTo: pid)
@@ -285,6 +298,60 @@ class DatabaseService {
       }
       return patients;
     });
+  }
+
+  // --- Bug Reporting System ---
+
+  // 1. Report Bug (Create)
+  Future<void> reportBug(
+    String userId,
+    String email,
+    String title,
+    String description,
+  ) async {
+    await _firestore.collection('bugs').add({
+      'userId': userId,
+      'userEmail': email,
+      'title': title,
+      'description': description,
+      'status': 'Open', // Open, Resolved
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // 2. Get All Bugs (Read - Admin)
+  Stream<List<Map<String, dynamic>>> getAllBugs() {
+    return _firestore
+        .collection('bugs')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map((doc) {
+            var data = doc.data();
+            data['id'] = doc.id;
+            // Handle timestamp safely
+            if (data['createdAt'] is Timestamp) {
+              data['date'] = (data['createdAt'] as Timestamp)
+                  .toDate()
+                  .toString();
+            } else {
+              data['date'] = 'Just now';
+            }
+            return data;
+          }).toList();
+        });
+  }
+
+  // 3. Resolve Bug (Update)
+  Future<void> resolveBug(String bugId) async {
+    await _firestore.collection('bugs').doc(bugId).update({
+      'status': 'Resolved',
+    });
+  }
+
+  // 4. Delete Bug (Delete)
+  Future<void> deleteBug(String bugId) async {
+    await _firestore.collection('bugs').doc(bugId).delete();
   }
 
   // --- App Content Management (About Us, FAQ, Privacy) ---
