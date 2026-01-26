@@ -4,6 +4,7 @@ import 'medicine_model.dart';
 import 'add_medicine_page.dart';
 import 'medicine_detail_page.dart';
 import 'login_page.dart';
+import 'monitor_dashboard.dart';
 import 'theme_manager.dart';
 
 class PatientDashboard extends StatefulWidget {
@@ -168,6 +169,42 @@ class _PatientDashboardState extends State<PatientDashboard> {
       onPressed: () {
         ThemeManager.toggleTheme();
         setState(() {});
+      },
+    );
+  }
+
+  Widget _buildSwitchDashboardIcon({Color? color}) {
+    final iconColor = color ?? Theme.of(context).iconTheme.color;
+    return IconButton(
+      icon: Icon(Icons.swap_horiz, color: iconColor),
+      onPressed: () {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text("Switch Dashboard"),
+            content: const Text(
+              "Are you sure you want to switch to Monitor Dashboard?",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("No"),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const MonitorDashboard(),
+                    ),
+                  );
+                },
+                child: const Text("Yes"),
+              ),
+            ],
+          ),
+        );
       },
     );
   }
@@ -930,6 +967,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                       ),
                     ),
                     const Spacer(),
+                    _buildSwitchDashboardIcon(color: Colors.white),
                     _buildThemeToggle(color: Colors.white),
                   ],
                 ),

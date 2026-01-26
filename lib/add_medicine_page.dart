@@ -21,8 +21,6 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
   // Theme Colors - Bluish Palette
   final Color primaryBlue = const Color(0xFF1565C0);
   final Color darkBlue = const Color(0xFF1976D2);
-  final Color textFieldFill = const Color(0xFFF5F9FC); // Softer blue-grey
-  final Color borderColor = const Color(0xFFE1E8ED);
 
   @override
   void initState() {
@@ -81,18 +79,21 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.medicine != null;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text(
           isEditing ? "Edit Medicine" : "Add Medicine",
-          style: const TextStyle(color: Colors.black),
+          style: TextStyle(color: theme.textTheme.bodyLarge?.color),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: theme.appBarTheme.backgroundColor,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black),
+          icon: Icon(Icons.arrow_back_ios_new, color: theme.iconTheme.color),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -112,9 +113,12 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 "Fill in the details below",
-                style: TextStyle(color: Colors.grey, fontSize: 16),
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey,
+                  fontSize: 16,
+                ),
               ),
               const SizedBox(height: 30),
 
@@ -207,22 +211,29 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
       padding: const EdgeInsets.only(bottom: 8.0),
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w600,
-          color: Colors.black87,
+          color: Theme.of(context).textTheme.bodyLarge?.color,
         ),
       ),
     );
   }
 
   InputDecoration _inputDecoration(String hint, IconData icon) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final fillColor = isDark
+        ? Colors.grey.withValues(alpha: 0.1)
+        : const Color(0xFFF5F9FC);
+    final hintColor = isDark ? Colors.grey[500] : const Color(0xFFB0BEC5);
+
     return InputDecoration(
       hintText: hint,
-      prefixIcon: Icon(icon, color: Colors.blueGrey[300]),
-      hintStyle: const TextStyle(color: Color(0xFFB0BEC5)),
+      prefixIcon: Icon(icon, color: hintColor),
+      hintStyle: TextStyle(color: hintColor),
       filled: true,
-      fillColor: textFieldFill,
+      fillColor: fillColor,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -230,7 +241,7 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: Colors.transparent),
+        borderSide: const BorderSide(color: Colors.transparent),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),

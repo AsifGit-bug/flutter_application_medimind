@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'register_page.dart';
 import 'patient_dashboard.dart';
 import 'monitor_dashboard.dart';
-import 'admin_dashboard.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -258,30 +257,46 @@ class _LoginPageState extends State<LoginPage> {
 
   void _handleLogin() {
     if (_formKey.currentState!.validate()) {
-      String email = _emailController.text.trim().toLowerCase();
-
-      // Logic for dashboard routing
-      if (email.contains('patient')) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const PatientDashboard()),
-        );
-      } else if (email.contains('monitor')) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MonitorDashboard()),
-        );
-      } else if (email.contains('admin')) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const AdminDashboard()),
-        );
-      } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Login successful!")));
-      }
+      // Show role selection dialog instead of hardcoded routing
+      _showRoleSelectionDialog();
     }
+  }
+
+  void _showRoleSelectionDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text("Who is using this app?"),
+        content: const Text("Please select your role to continue."),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PatientDashboard(),
+                ),
+              );
+            },
+            child: const Text("Patient"),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const MonitorDashboard(),
+                ),
+              );
+            },
+            child: const Text("Monitor"),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildLabel(String text, Color color) {

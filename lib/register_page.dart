@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'patient_dashboard.dart';
+import 'monitor_dashboard.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -16,19 +18,51 @@ class _RegisterPageState extends State<RegisterPage> {
       TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
-  // Selected role: 'patient' or 'guardian'
-  String _selectedRole = 'patient';
-
   // Password visibility toggles
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
 
   void _handleRegister() {
     if (_formKey.currentState!.validate()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Registration successful as $_selectedRole!")),
-      );
+      _showRoleSelectionDialog();
     }
+  }
+
+  void _showRoleSelectionDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text("Who is using this app?"),
+        content: const Text("Please select your role to continue."),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PatientDashboard(),
+                ), // Assuming PatientDashboard is imported or needs import if not
+              );
+            },
+            child: const Text("Patient"),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const MonitorDashboard(),
+                ), // Assuming MonitorDashboard is imported or needs import
+              );
+            },
+            child: const Text("Monitor"),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -85,38 +119,6 @@ class _RegisterPageState extends State<RegisterPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            "Select Your Role",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: textColor,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Role selection cards
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _buildRoleCard(
-                                  role: 'patient',
-                                  icon: Icons.person_outline,
-                                  label: 'Patient',
-                                  theme: theme,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _buildRoleCard(
-                                  role: 'guardian',
-                                  icon: Icons.family_restroom_outlined,
-                                  label: 'Guardian',
-                                  theme: theme,
-                                ),
-                              ),
-                            ],
-                          ),
                           const SizedBox(height: 24),
 
                           // Name Input
@@ -133,6 +135,12 @@ class _RegisterPageState extends State<RegisterPage> {
                             validator: (value) {
                               if (value == null || value.isEmpty) {
                                 return 'Please enter your name';
+                              }
+                              // Name validation: Starts with a letter, no numbers, allows spaces/hyphens
+                              if (!RegExp(
+                                r"^[a-zA-Z][a-zA-Z\s-]*$",
+                              ).hasMatch(value)) {
+                                return 'Name must start with a letter and contain no numbers';
                               }
                               return null;
                             },
@@ -195,8 +203,24 @@ class _RegisterPageState extends State<RegisterPage> {
                               if (value == null || value.isEmpty) {
                                 return 'Please enter a password';
                               }
-                              if (value.length < 6) {
-                                return 'Password must be at least 6 characters';
+                              if (value.length < 8 || value.length > 16) {
+                                return 'Password must be 8-16 characters';
+                              }
+                              if (!RegExp(r'(?=.*[a-z])').hasMatch(value)) {
+                                // Lowercase
+                                return 'Must include at least one lowercase letter';
+                              }
+                              if (!RegExp(r'(?=.*[A-Z])').hasMatch(value)) {
+                                // Uppercase
+                                return 'Must include at least one uppercase letter';
+                              }
+                              if (!RegExp(r'(?=.*[0-9])').hasMatch(value)) {
+                                // Number
+                                return 'Must include at least one number';
+                              }
+                              if (!RegExp(r'(?=.*[@$!%*?&])').hasMatch(value)) {
+                                // Special Char
+                                return 'Must include at least one special character (@\$!%*?&)';
                               }
                               return null;
                             },
@@ -340,54 +364,6 @@ class _RegisterPageState extends State<RegisterPage> {
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
         borderSide: const BorderSide(color: Colors.red),
-      ),
-    );
-  }
-
-  // Helper method to build role selection cards
-  Widget _buildRoleCard({
-    required String role,
-    required IconData icon,
-    required String label,
-    required ThemeData theme,
-  }) {
-    bool isSelected = _selectedRole == role;
-    return GestureDetector(
-      onTap: () => setState(() => _selectedRole = role),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? theme.primaryColor.withValues(alpha: 0.1)
-              : theme.brightness == Brightness.dark
-              ? Colors.grey.withValues(alpha: 0.1)
-              : const Color(0xFFF7F8F9),
-          border: Border.all(
-            color: isSelected ? theme.primaryColor : theme.dividerColor,
-            width: isSelected ? 2 : 1,
-          ),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              size: 32,
-              color: isSelected ? theme.primaryColor : const Color(0xFF6A707C),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: isSelected
-                    ? theme.primaryColor
-                    : theme.textTheme.bodyLarge!.color,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

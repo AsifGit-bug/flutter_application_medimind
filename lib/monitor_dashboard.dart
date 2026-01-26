@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'login_page.dart';
+import 'patient_dashboard.dart';
 import 'medicine_model.dart';
 import 'medicine_detail_page.dart';
 import 'add_medicine_page.dart';
@@ -163,13 +164,48 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           "Monitor Dashboard",
-          style: TextStyle(color: Colors.black),
+          style: TextStyle(
+            color: theme.textTheme.bodyLarge?.color, // Adaptive text color
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: theme.cardColor, // Adaptive background
         elevation: 0,
         actions: [
+          IconButton(
+            icon: Icon(Icons.swap_horiz, color: theme.iconTheme.color),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text("Switch Dashboard"),
+                  content: const Text(
+                    "Are you sure you want to switch to Patient Dashboard?",
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text("No"),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const PatientDashboard(),
+                          ),
+                        );
+                      },
+                      child: const Text("Yes"),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: Icon(
               ThemeManager.themeNotifier.value == ThemeMode.dark
