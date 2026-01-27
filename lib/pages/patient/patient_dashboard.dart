@@ -1,16 +1,18 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'medicine_model.dart';
+import '../../models/medicine_model.dart';
 import 'add_medicine_page.dart';
 import 'medicine_detail_page.dart';
-import 'login_page.dart';
-import 'monitor_dashboard.dart';
-import 'theme_manager.dart';
-import 'services/database_service.dart';
-import 'services/auth_service.dart';
-import 'content_display_page.dart';
-import 'report_bug_page.dart';
+import 'my_caregivers_page.dart'; // NEW IMPORT
+import '../auth/login_page.dart';
+import '../monitor/monitor_dashboard.dart';
+import '../../theme/theme_manager.dart';
+import '../../services/database_service.dart';
+import '../../services/auth_service.dart';
+import '../common/content_display_page.dart';
+import '../common/report_bug_page.dart';
 
 class PatientDashboard extends StatefulWidget {
   const PatientDashboard({super.key});
@@ -28,43 +30,60 @@ class _PatientDashboardState extends State<PatientDashboard> {
   late User _currentUser;
 
   // State
-  final List<Medicine> _medicines = [];
+  List<Medicine> _medicines = [];
+  String _userName = "Patient";
+  String _userEmail = "";
   final int _takenCount = 0;
   final int _pendingCount = 0;
 
   // History Tab State
-  String _historyView = "Timeline";
-  String _historyFilter = "All";
+  StreamSubscription<List<Medicine>>? _medicinesSubscription;
 
   @override
   void initState() {
     super.initState();
     _currentUser = _auth.currentUser!;
+    _fetchUserData();
+    _subscribeToMedicines();
+  }
+
+  @override
+  void dispose() {
+    _medicinesSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _subscribeToMedicines() {
+    _medicinesSubscription = _db.getMedicines(_currentUser.uid).listen((
+      medicines,
+    ) {
+      if (mounted) {
+        setState(() {
+          _medicines = medicines;
+          _sortMedicines();
+        });
+      }
+    });
+  }
+
+  Future<void> _fetchUserData() async {
+    final data = await _db.getUserData(_currentUser.uid);
+    if (mounted) {
+      setState(() {
+        _userName = data?['name'] ?? "Patient";
+        _userEmail = _currentUser.email ?? "";
+      });
+    }
   }
 
   void _navigateToAddMedicine() async {
-    final result = await Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => AddMedicinePage(userId: _currentUser.uid),
       ),
     );
-
-    if (!mounted) return;
-
-    if (result != null && result is Medicine) {
-      setState(() {
-        _medicines.add(result);
-        _sortMedicines();
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("${result.name} added"),
-          backgroundColor: Theme.of(context).primaryColor,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+    // No manual update needed, stream handles it
   }
 
   void _navigateToDetail(Medicine medicine) async {
@@ -248,24 +267,27 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 CircleAvatar(
                   radius: 40,
                   backgroundColor: theme.cardColor,
-                  child: Icon(
-                    Icons.person,
-                    size: 40,
-                    color: theme.primaryColor,
+                  child: Text(
+                    _userName.isNotEmpty ? _userName[0].toUpperCase() : 'P',
+                    style: TextStyle(
+                      color: theme.primaryColor,
+                      fontSize: 40,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  "John Patient",
-                  style: TextStyle(
+                Text(
+                  _userName,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const Text(
-                  "john.patient@example.com",
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                Text(
+                  _userEmail,
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
                 ),
               ],
             ),
@@ -281,6 +303,14 @@ class _PatientDashboardState extends State<PatientDashboard> {
                   "Personal Data",
                   _showProfileDetails,
                 ),
+                _buildSettingsTile(Icons.group_outlined, "My Caregivers", () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const MyCaregiversPage(),
+                    ),
+                  );
+                }),
                 _buildSettingsTile(
                   Icons.people_outline,
                   "Monitor Requests",
@@ -326,7 +356,17 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 _buildSettingsTile(
                   Icons.privacy_tip_outlined,
                   "Privacy Policy",
-                  () {},
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ContentDisplayPage(
+                          title: "Privacy Policy",
+                          contentKey: "privacyPolicy",
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 32),
                 SizedBox(
@@ -400,56 +440,9 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-            Container(
-              decoration: BoxDecoration(
-                color: theme.brightness == Brightness.dark
-                    ? Colors.grey[800]
-                    : Colors.grey[200],
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  _buildToggleOption("Timeline"),
-                  _buildToggleOption("Calendar"),
-                ],
-              ),
-            ),
             const SizedBox(height: 24),
-            if (_historyView == "Timeline")
-              _buildTimelineView()
-            else
-              _buildCalendarView(),
+            _buildTimelineView(),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildToggleOption(String text) {
-    final bool isSelected = _historyView == text;
-    final theme = Theme.of(context);
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _historyView = text),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? theme.colorScheme.secondary
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            text,
-            style: TextStyle(
-              color: isSelected
-                  ? Colors.white
-                  : theme.textTheme.bodyMedium!.color,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
         ),
       ),
     );
@@ -457,496 +450,193 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
   Widget _buildTimelineView() {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: theme.dividerColor),
-          ),
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    List<Map<String, dynamic>> historyEvents = [];
+
+    // Analyze last 7 days
+    for (var med in _medicines) {
+      for (int i = 0; i < 7; i++) {
+        final checkDate = today.subtract(Duration(days: i));
+        final scheduledTime = DateTime(
+          checkDate.year,
+          checkDate.month,
+          checkDate.day,
+          med.time.hour,
+          med.time.minute,
+        );
+
+        // Check if taken on this day
+        final takenDoses = med.doseHistory
+            .where(
+              (d) =>
+                  d.year == checkDate.year &&
+                  d.month == checkDate.month &&
+                  d.day == checkDate.day,
+            )
+            .toList();
+
+        if (takenDoses.isNotEmpty) {
+          // Add 'Taken' events
+          for (var dose in takenDoses) {
+            historyEvents.add({
+              'name': med.name,
+              'dosage': med.dosage,
+              'type': med.type,
+              'time': dose, // Actual time taken
+              'status': 'Taken',
+            });
+          }
+        } else {
+          // Check for 'Missed'
+          // If the scheduled time is in the past, it's missed
+          if (scheduledTime.isBefore(now)) {
+            historyEvents.add({
+              'name': med.name,
+              'dosage': med.dosage,
+              'type': med.type,
+              'time': scheduledTime, // Scheduled time
+              'status': 'Missed',
+            });
+          }
+        }
+      }
+    }
+
+    // Sort by time descending (newest first)
+    historyEvents.sort((a, b) => b['time'].compareTo(a['time']));
+
+    if (historyEvents.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                DateFormat('EEEE, MMMM d, y').format(DateTime.now()),
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: theme.textTheme.bodyLarge!.color,
-                ),
+              Icon(
+                Icons.history,
+                size: 64,
+                color: theme.disabledColor.withValues(alpha: 0.5),
               ),
               const SizedBox(height: 16),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: ["All", "Taken", "Missed", "Skipped"].map((filter) {
-                    final isSelected = _historyFilter == filter;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(filter),
-                        selected: isSelected,
-                        onSelected: (val) =>
-                            setState(() => _historyFilter = filter),
-                        selectedColor: theme.colorScheme.secondary,
-                        labelStyle: TextStyle(
-                          color: isSelected
-                              ? Colors.white
-                              : theme.textTheme.bodyLarge!.color,
-                          fontWeight: isSelected
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                        ),
-                        backgroundColor: theme.scaffoldBackgroundColor,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          side: BorderSide(color: theme.dividerColor),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              _buildTimelineItem(
-                "Metformin",
-                "500mg",
-                "8:00 AM",
-                const Color(0xFF009688),
-                "Taken",
-              ),
-              _buildTimelineItem(
-                "Lisinopril",
-                "10mg",
-                "9:00 AM",
-                theme.colorScheme.secondary, // Adaptive color
-                "Skipped",
-              ),
-              _buildTimelineItem(
-                "Aspirin",
-                "81mg",
-                "12:00 PM",
-                const Color(0xFF9C27B0),
-                "Pending",
-              ),
-              _buildTimelineItem(
-                "Vitamin D",
-                "1000IU",
-                "6:00 PM",
-                const Color(0xFFE91E63),
-                "Pending",
+              Text(
+                "No history (last 7 days).",
+                style: TextStyle(color: theme.textTheme.bodyMedium?.color),
               ),
             ],
           ),
         ),
-      ],
+      );
+    }
+
+    return Column(
+      children: historyEvents.map((event) {
+        return _buildTimelineItem(
+          event['name'],
+          "${event['dosage']} • ${event['type']}",
+          DateFormat('MMM d, h:mm a').format(event['time']),
+          event['status'] == 'Taken' ? Colors.green : Colors.red,
+          event['status'],
+        );
+      }).toList(),
     );
   }
 
   Widget _buildTimelineItem(
     String name,
-    String dosage,
+    String details,
     String time,
     Color color,
     String status,
   ) {
-    IconData statusIcon;
-    Color statusColor;
-    if (status == "Taken") {
-      statusIcon = Icons.check_circle_outline;
-      statusColor = Colors.green;
-    } else if (status == "Skipped") {
-      statusIcon = Icons.remove_circle_outline;
-      statusColor = Colors.orange;
-    } else {
-      statusIcon = Icons.access_time;
-      statusColor = Colors.grey;
-    }
     final theme = Theme.of(context);
+    bool isTaken = status == 'Taken';
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: theme.cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.dividerColor),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 4,
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: IntrinsicHeight(
-        child: Row(
-          children: [
-            Container(
-              width: 4,
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  bottomLeft: Radius.circular(12),
-                ),
-              ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
             ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: 0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.medication, color: color, size: 20),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            name,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: theme.textTheme.bodyLarge!.color,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            "$dosage • Scheduled: $time",
-                            style: TextStyle(
-                              color: theme.textTheme.bodyMedium!.color,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(statusIcon, color: statusColor),
-                  ],
-                ),
-              ),
+            child: Icon(
+              isTaken ? Icons.check : Icons.medication,
+              color: color,
+              size: 24,
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCalendarView() {
-    final theme = Theme.of(context);
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(16),
           ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    onPressed: () {},
-                    icon: Icon(
-                      Icons.chevron_left,
-                      color: theme.iconTheme.color,
-                    ),
-                  ),
-                  Text(
-                    DateFormat('MMMM y').format(DateTime.now()),
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: theme.textTheme.bodyLarge!.color,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () {},
-                    icon: Icon(
-                      Icons.chevron_right,
-                      color: theme.iconTheme.color,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Table(
-                children: [
-                  TableRow(
-                    children: [
-                      Center(
-                        child: Text(
-                          "S",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "M",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "T",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "W",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "T",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "F",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          "S",
-                          style: TextStyle(
-                            color: theme.textTheme.bodyMedium!.color,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const TableRow(
-                    children: [
-                      SizedBox(height: 8),
-                      SizedBox(),
-                      SizedBox(),
-                      SizedBox(),
-                      SizedBox(),
-                      SizedBox(),
-                      SizedBox(),
-                    ],
-                  ),
-                  for (int week = 0; week < 4; week++)
-                    TableRow(
-                      children: List.generate(7, (day) {
-                        final int dayNum = (week * 7) + day + 1;
-                        if (dayNum > 31) return const SizedBox();
-                        Color? dotColor;
-                        if (dayNum < DateTime.now().day) {
-                          dotColor = dayNum % 2 == 0
-                              ? Colors.green
-                              : Colors.red;
-                        }
-
-                        return Container(
-                          height: 40,
-                          alignment: Alignment.center,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                dayNum.toString(),
-                                style: TextStyle(
-                                  color: theme.textTheme.bodyLarge!.color,
-                                  fontWeight: dayNum == DateTime.now().day
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
-                              ),
-                              if (dotColor != null)
-                                Container(
-                                  width: 4,
-                                  height: 4,
-                                  margin: const EdgeInsets.only(top: 2),
-                                  decoration: BoxDecoration(
-                                    color: dotColor,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard("Taken (Jan)", 24, [
-                const Color(0xFF66BB6A),
-                const Color(0xFF43A047),
-              ], Icons.check_circle_outline),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard("Missed (Jan)", 3, [
-                const Color(0xFFEF5350),
-                const Color(0xFFC62828),
-              ], Icons.error_outline),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-
-        Card(
-          elevation: 0,
-          color: theme.cardColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Adherence",
-                      style: TextStyle(
-                        color: theme.textTheme.bodyMedium!.color,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      "88%",
-                      style: TextStyle(
-                        color: theme.textTheme.bodyLarge!.color,
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      "Superb!",
-                      style: TextStyle(
-                        color: Colors.green,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: theme.textTheme.bodyLarge?.color,
+                  ),
                 ),
-                SizedBox(
-                  width: 80,
-                  height: 80,
-                  child: Stack(
-                    children: [
-                      Center(
-                        child: CircularProgressIndicator(
-                          value: 0.88,
-                          strokeWidth: 8,
-                          backgroundColor: theme.brightness == Brightness.dark
-                              ? Colors.grey[800]
-                              : Colors.grey.shade100,
-                          color: const Color(0xFF009688),
-                        ),
-                      ),
-                      const Center(
-                        child: Icon(Icons.thumb_up, color: Color(0xFF009688)),
-                      ),
-                    ],
+                Text(
+                  details,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: theme.textTheme.bodyMedium?.color?.withValues(
+                      alpha: 0.7,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 20),
-
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                "Last 7 Days Activity",
+                time,
                 style: TextStyle(
-                  color: theme.textTheme.bodyLarge!.color,
                   fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: theme.textTheme.bodyLarge?.color,
                 ),
               ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: List.generate(7, (index) {
-                  final double height = [
-                    40.0,
-                    60.0,
-                    80.0,
-                    50.0,
-                    80.0,
-                    70.0,
-                    30.0,
-                  ][index];
-                  return Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Container(
-                        width: 20,
-                        height: height,
-                        decoration: BoxDecoration(
-                          color: theme.primaryColor,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        ["S", "M", "T", "W", "T", "F", "S"][index],
-                        style: TextStyle(
-                          color: theme.textTheme.bodyMedium!.color,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  );
-                }),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isTaken
+                      ? Colors.green.withValues(alpha: 0.1)
+                      : Colors.orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  status,
+                  style: TextStyle(
+                    color: isTaken ? Colors.green : Colors.orange,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -986,26 +676,31 @@ class _PatientDashboardState extends State<PatientDashboard> {
                           CircleAvatar(
                             radius: 24,
                             backgroundColor: Colors.white,
-                            child: Icon(
-                              Icons.person,
-                              color: theme.primaryColor,
+                            child: Text(
+                              _userName.isNotEmpty
+                                  ? _userName[0].toUpperCase()
+                                  : 'P',
+                              style: TextStyle(
+                                color: theme.primaryColor,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                "Good morning",
+                              Text(
+                                "Good Morning,",
                                 style: TextStyle(
-                                  color: Colors.white70,
+                                  color: Colors.white.withValues(alpha: 0.8),
                                   fontSize: 14,
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                "John Patient",
-                                style: TextStyle(
+                              Text(
+                                _userName,
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
@@ -1016,9 +711,12 @@ class _PatientDashboardState extends State<PatientDashboard> {
                         ],
                       ),
                     ),
-                    const Spacer(),
-                    _buildSwitchDashboardIcon(color: Colors.white),
-                    _buildThemeToggle(color: Colors.white),
+                    Row(
+                      children: [
+                        _buildSwitchDashboardIcon(color: Colors.white),
+                        _buildThemeToggle(color: Colors.white),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -1448,17 +1146,64 @@ class _PatientDashboardState extends State<PatientDashboard> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildDetailRow("Patient Name", "John Patient"),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(child: _buildDetailRow("Patient Name", _userName)),
+                IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.blue),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _showEditNameDialog();
+                  },
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
-            _buildDetailRow("Monitor Name", "Sarah Guardian"),
-            const SizedBox(height: 12),
-            _buildDetailRow("Email", "john.patient@example.com"),
+            _buildDetailRow("Email", _userEmail),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text("Close"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditNameDialog() {
+    final TextEditingController nameController = TextEditingController(
+      text: _userName,
+    );
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Edit Name"),
+        content: TextField(
+          controller: nameController,
+          decoration: const InputDecoration(labelText: "Full Name"),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newName = nameController.text.trim();
+              if (newName.isNotEmpty) {
+                await _db.updateUserName(_currentUser.uid, newName);
+                if (mounted) {
+                  setState(() => _userName = newName);
+                  Navigator.pop(context); // Close dialog
+                  // Re-open details to show updated info (optional, but nice)
+                  _showProfileDetails();
+                }
+              }
+            },
+            child: const Text("Save"),
           ),
         ],
       ),

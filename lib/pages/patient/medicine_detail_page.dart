@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'medicine_model.dart';
+import '../../models/medicine_model.dart';
 import 'add_medicine_page.dart';
 
 class MedicineDetailPage extends StatefulWidget {

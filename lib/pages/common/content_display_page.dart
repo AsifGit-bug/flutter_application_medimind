@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'services/database_service.dart';
+import '../../services/database_service.dart';
 
 class ContentDisplayPage extends StatelessWidget {
   final String title;

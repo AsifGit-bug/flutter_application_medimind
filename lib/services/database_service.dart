@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../medicine_model.dart';
+import '../models/medicine_model.dart';
 
 class DatabaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -25,9 +25,45 @@ class DatabaseService {
     }, SetOptions(merge: true));
   }
 
+  Future<void> updateUserName(String uid, String newName) async {
+    await _firestore.collection('users').doc(uid).update({
+      'name': newName.trim(),
+    });
+  }
+
+  // Ensure Admin User Exists (Self-healing)
+  Future<void> ensureAdminUser(String uid, String email) async {
+    await _firestore.collection('users').doc(uid).set({
+      'uid': uid,
+      'email': email,
+      'role': 'admin',
+      'active': true,
+      'isVerified': true,
+      'isDeleted': false,
+      // Default name to "Admin" if missing (merge usage)
+      // We can't easily conditionally set name only if missing in one go without reading.
+      // But since this is specific for the hardcoded admins, it's safer to ensure they exist.
+    }, SetOptions(merge: true));
+
+    // Check if name exists, if not set it
+    final doc = await _firestore.collection('users').doc(uid).get();
+    if (!doc.exists || !doc.data()!.containsKey('name')) {
+      await _firestore.collection('users').doc(uid).update({
+        'name': 'Admin Staff',
+      });
+    }
+  }
+
   // Toggle User Active Status
   Future<void> toggleUserActiveStatus(String uid, bool isActive) async {
     await _firestore.collection('users').doc(uid).update({'active': isActive});
+  }
+
+  // Set User as Verified
+  Future<void> verifyUser(String uid) async {
+    await _firestore.collection('users').doc(uid).set({
+      'isVerified': true,
+    }, SetOptions(merge: true));
   }
 
   // Create User Doc (for self-healing)
@@ -43,6 +79,9 @@ class DatabaseService {
       'role': role,
       'name': name,
       'createdAt': FieldValue.serverTimestamp(),
+      'active': true,
+      'isDeleted': false,
+      'isVerified': false, // Default to false until first login
       if (role == 'monitor' || role == 'guardian') 'linkedPatients': [],
       if (role == 'patient') 'caregivers': [],
     });
@@ -59,9 +98,19 @@ class DatabaseService {
         data['email'] = data['email'] ?? 'No Email';
         data['role'] = data['role'] ?? 'patient';
         data['active'] = data['active'] ?? true;
-        // Convert timestamp to string if needed, or keep as is
+        data['isDeleted'] = data['isDeleted'] ?? false;
+        data['isVerified'] = data['isVerified'] ?? false;
         return data;
       }).toList();
+    });
+  }
+
+  // Delete User (Soft Delete)
+  Future<void> deleteUser(String uid) async {
+    // We soft delete so we can maintain the ban status and totals
+    await _firestore.collection('users').doc(uid).update({
+      'active': false,
+      'isDeleted': true,
     });
   }
 
@@ -76,7 +125,11 @@ class DatabaseService {
       'type': medicine.type,
       'frequency': medicine.frequency,
       'time': Timestamp.fromDate(medicine.time),
+      'scheduleTimes': medicine.scheduleTimes
+          .map((e) => Timestamp.fromDate(e))
+          .toList(),
       'instructions': medicine.instructions,
+      'mealInstruction': medicine.mealInstruction,
       'doseHistory': medicine.doseHistory
           .map((e) => Timestamp.fromDate(e))
           .toList(),
@@ -93,14 +146,28 @@ class DatabaseService {
         .map((snapshot) {
           return snapshot.docs.map((doc) {
             Map<String, dynamic> data = doc.data();
+            DateTime primaryTime = (data['time'] as Timestamp).toDate();
+
+            // Handle scheduleTimes (backward compatibility)
+            List<DateTime> scheduleTimes = [];
+            if (data['scheduleTimes'] != null) {
+              scheduleTimes = (data['scheduleTimes'] as List<dynamic>)
+                  .map((e) => (e as Timestamp).toDate())
+                  .toList();
+            } else {
+              scheduleTimes = [primaryTime];
+            }
+
             return Medicine(
               id: doc.id,
               name: data['name'] ?? '',
               dosage: data['dosage'] ?? '',
               frequency: data['frequency'] ?? '',
-              time: (data['time'] as Timestamp).toDate(),
+              time: primaryTime,
+              scheduleTimes: scheduleTimes,
               type: data['type'] ?? 'Pill',
               instructions: data['instructions'] ?? '',
+              mealInstruction: data['mealInstruction'] ?? 'None',
               doseHistory:
                   (data['doseHistory'] as List<dynamic>?)
                       ?.map((e) => (e as Timestamp).toDate())
@@ -109,6 +176,30 @@ class DatabaseService {
             );
           }).toList();
         });
+  }
+
+  // Get Linked Caregivers (For Patients)
+  Stream<List<Map<String, dynamic>>> getLinkedCaregivers(String patientId) {
+    return _firestore.collection('users').doc(patientId).snapshots().asyncMap((
+      patientDoc,
+    ) async {
+      if (!patientDoc.exists) return [];
+      final data = patientDoc.data() as Map<String, dynamic>;
+      final caregivers = List<String>.from(data['caregivers'] ?? []);
+
+      if (caregivers.isEmpty) return [];
+
+      List<Map<String, dynamic>> caregiverDetails = [];
+      for (String uid in caregivers) {
+        final userDoc = await _firestore.collection('users').doc(uid).get();
+        if (userDoc.exists) {
+          final userData = userDoc.data() as Map<String, dynamic>;
+          userData['uid'] = uid; // Ensure UID is available
+          caregiverDetails.add(userData);
+        }
+      }
+      return caregiverDetails;
+    });
   }
 
   // Delete Medicine
@@ -256,9 +347,16 @@ class DatabaseService {
     String patientId,
     String nickname,
   ) async {
-    await _firestore.collection('users').doc(monitorId).set({
-      'patientNicknames': {patientId: nickname},
-    }, SetOptions(merge: true));
+    if (nickname.trim().isEmpty) {
+      // If empty, remove the nickname entry to restore default name
+      await _firestore.collection('users').doc(monitorId).update({
+        'patientNicknames.$patientId': FieldValue.delete(),
+      });
+    } else {
+      await _firestore.collection('users').doc(monitorId).set({
+        'patientNicknames': {patientId: nickname.trim()},
+      }, SetOptions(merge: true));
+    }
   }
 
   // 7. Remove Patient (Duplicate logic for naming consistency)

@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'patient_dashboard.dart';
-import 'monitor_dashboard.dart';
-import 'services/auth_service.dart';
-import 'services/database_service.dart';
+import '../../services/auth_service.dart';
 import 'login_page.dart';
 
 class RegisterPage extends StatefulWidget {
@@ -27,17 +23,20 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _isConfirmPasswordVisible = false;
 
   final AuthService _authService = AuthService();
-  final DatabaseService _dbService = DatabaseService();
   bool _isLoading = false;
+
+  // Role selection - Defaulting to patient since UI is removed
+  // String _selectedRole = 'patient';
 
   Future<void> _handleRegister() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
       try {
-        String roleToRegister = 'patient'; // Default
+        String roleToRegister =
+            'pending'; // Default to pending so user selects role
         String email = _emailController.text.trim().toLowerCase();
 
-        // Admin logic
+        // Admin logic overrides selection
         final adminEmails = [
           'asifabar43@gmail.com',
           'srhridoy133@gmail.com',
@@ -47,25 +46,42 @@ class _RegisterPageState extends State<RegisterPage> {
           roleToRegister = 'admin';
         }
 
-        UserCredential result = await _authService.signUp(
+        await _authService.signUp(
           email: email,
           password: _passwordController.text,
           role: roleToRegister,
           name: _nameController.text.trim(),
         );
 
+        // Send Verification Email
+        await _authService.sendEmailVerification();
+
         if (mounted) {
-          if (roleToRegister == 'admin') {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Admin account created!")),
-            );
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const LoginPage()),
-            );
-          } else {
-            _showRoleSelectionDialog(result.user!.uid);
-          }
+          // Show dialog telling them to check email
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+              title: const Text("Verify your email"),
+              content: Text(
+                "A verification link has been sent to $email.\nPlease check your inbox and spam folder to verify your email before logging in.",
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context); // Close dialog
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const LoginPage(),
+                      ),
+                    );
+                  },
+                  child: const Text("OK"),
+                ),
+              ],
+            ),
+          );
         }
       } catch (e) {
         if (mounted) {
@@ -77,44 +93,6 @@ class _RegisterPageState extends State<RegisterPage> {
         if (mounted) setState(() => _isLoading = false);
       }
     }
-  }
-
-  void _showRoleSelectionDialog(String uid) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text("Who is using this app?"),
-        content: const Text("Please select your role to continue."),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const PatientDashboard(),
-                ), // Assuming PatientDashboard is imported or needs import if not
-              );
-            },
-            child: const Text("Patient"),
-          ),
-          TextButton(
-            onPressed: () async {
-              final navigator = Navigator.of(context);
-              await _dbService.updateUserRole(uid, 'monitor');
-              if (!mounted) return;
-              navigator.pushReplacement(
-                MaterialPageRoute(
-                  builder: (context) => const MonitorDashboard(),
-                ),
-              );
-            },
-            child: const Text("Monitor"),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -171,6 +149,8 @@ class _RegisterPageState extends State<RegisterPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          const SizedBox(height: 24),
+
                           const SizedBox(height: 24),
 
                           // Name Input
@@ -258,10 +238,6 @@ class _RegisterPageState extends State<RegisterPage> {
                               if (value.length < 8 || value.length > 16) {
                                 return 'Password must be 8-16 characters';
                               }
-                              if (!RegExp(r'(?=.*[a-z])').hasMatch(value)) {
-                                // Lowercase
-                                return 'Must include at least one lowercase letter';
-                              }
                               if (!RegExp(r'(?=.*[A-Z])').hasMatch(value)) {
                                 // Uppercase
                                 return 'Must include at least one uppercase letter';
@@ -269,10 +245,6 @@ class _RegisterPageState extends State<RegisterPage> {
                               if (!RegExp(r'(?=.*[0-9])').hasMatch(value)) {
                                 // Number
                                 return 'Must include at least one number';
-                              }
-                              if (!RegExp(r'(?=.*[@$!%*?&])').hasMatch(value)) {
-                                // Special Char
-                                return 'Must include at least one special character (@\$!%*?&)';
                               }
                               return null;
                             },

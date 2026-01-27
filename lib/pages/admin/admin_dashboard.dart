@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import 'theme_manager.dart';
-import 'login_page.dart';
-import 'services/database_service.dart';
+import '../../theme/theme_manager.dart';
+import '../auth/login_page.dart';
+import '../../services/database_service.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -170,15 +170,32 @@ class _AdminDashboardState extends State<AdminDashboard> {
   // --- 1. System Overview ---
   // --- 1. System Overview ---
   Widget _buildOverviewTab(List<Map<String, dynamic>> users) {
-    // Filter Lists
-    final admins = users
+    // Filter Users
+    // Only show "Verified" users (those who successfully logged in/verified email)
+    // We exclude admins from "Total Users" count to distinguish staff from customers
+    final verifiedUsers = users.where((u) {
+      final bool isVerified = u['isVerified'] ?? false;
+      // We also hide "isDeleted" users if we want to be clean, but user just said "remove delete function"
+      // so we rely on "Ban" (active: false).
+      // If we previously soft-deleted users, they might have isDeleted: true.
+      // Let's hide them if they are soft-deleted to keep list clean, or show them?
+      // User said "show proper users... like those who are logged in".
+      // Usually softly deleted users shouldn't show up.
+      final bool isDeleted = u['isDeleted'] ?? false;
+      return isVerified && !isDeleted;
+    }).toList();
+
+    final admins = verifiedUsers
         .where((u) => u['role']?.toString().toLowerCase() == "admin")
         .take(3)
         .toList();
 
-    final normalUsers = users
+    final normalUsers = verifiedUsers
         .where((u) => u['role']?.toString().toLowerCase() != "admin")
         .toList();
+
+    // Total Users count should be the number of verified normal users
+    final totalUserCount = normalUsers.length;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -214,11 +231,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 ),
               ),
               const SizedBox(width: 16),
-              // Total Users Card
+              // Total Users Card (Verified Only)
               Expanded(
                 child: _buildInteractiveCard(
                   title: "Total Users",
-                  count: normalUsers.length.toString(),
+                  count: totalUserCount.toString(),
                   icon: Icons.group,
                   color: Colors.blue,
                   isSelected: _showTotalUsers,
@@ -291,7 +308,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
             const SizedBox(height: 12),
             if (normalUsers.isEmpty)
-              const Text("No users found")
+              const Text("No verified users found")
             else
               ListView.separated(
                 shrinkWrap: true,
@@ -380,6 +397,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                             ),
                           ],
                         ),
+                        // DELETE BUTTON REMOVED AS REQUESTED
                       ],
                     ),
                   );
@@ -390,6 +408,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
       ),
     );
   }
+
+  // _confirmDeleteUser removed or unused
 
   Widget _buildInteractiveCard({
     required String title,

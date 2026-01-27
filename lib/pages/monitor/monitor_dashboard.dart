@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'login_page.dart';
-import 'services/database_service.dart';
-import 'services/auth_service.dart';
-import 'report_bug_page.dart';
-import 'patient_dashboard.dart';
-import 'medicine_model.dart';
-import 'theme_manager.dart';
+import '../auth/login_page.dart';
+import '../../services/database_service.dart';
+import '../../services/auth_service.dart';
+import '../common/report_bug_page.dart';
+import '../patient/patient_dashboard.dart';
+import '../../models/medicine_model.dart';
+import '../../theme/theme_manager.dart';
 
 class MonitorDashboard extends StatefulWidget {
   const MonitorDashboard({super.key});
@@ -191,9 +191,15 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
           itemCount: patients.length,
           itemBuilder: (context, index) {
             final patient = patients[index];
-            final String name =
-                patient['nickname'] ?? patient['name'] ?? 'Patient';
-            final bool hasNickname = patient['nickname'] != null;
+            final String nickname = patient['nickname']?.toString() ?? '';
+            final String officialName = patient['name']?.toString() ?? '';
+
+            // Priority: Nickname > Official Name > 'Patient'
+            String displayName = nickname.isNotEmpty
+                ? nickname
+                : (officialName.isNotEmpty ? officialName : 'Patient');
+
+            final bool hasNickname = nickname.isNotEmpty;
 
             return Card(
               shape: RoundedRectangleBorder(
@@ -213,7 +219,9 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                           context,
                         ).primaryColor.withValues(alpha: 0.1),
                         child: Text(
-                          name[0].toUpperCase(),
+                          displayName.isNotEmpty
+                              ? displayName[0].toUpperCase()
+                              : 'P',
                           style: TextStyle(
                             color: Theme.of(context).primaryColor,
                             fontWeight: FontWeight.bold,
@@ -226,7 +234,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              name,
+                              displayName,
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -234,7 +242,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                             ),
                             if (hasNickname)
                               Text(
-                                patient['name'] ?? '',
+                                officialName,
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey[600],
@@ -356,7 +364,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
-                  _buildMedicationHistoryList(patient['id']),
+                  _buildTodaysProgress(patient['id']),
                 ],
               ),
             ),
@@ -366,7 +374,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     );
   }
 
-  Widget _buildMedicationHistoryList(String patientId) {
+  Widget _buildTodaysProgress(String patientId) {
     return StreamBuilder<List<Medicine>>(
       stream: _db.getMedicines(patientId),
       builder: (context, snapshot) {
@@ -375,58 +383,107 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         }
         final medicines = snapshot.data!;
 
-        if (medicines.isEmpty) {
-          return const Center(child: Text("No medicines added by patient."));
+        // Filter for "Today" (MVP: Show all active daily meds)
+        final todayMeds = medicines.toList();
+        todayMeds.sort((a, b) => a.time.compareTo(b.time));
+
+        if (todayMeds.isEmpty) {
+          return const Center(child: Text("No medicines scheduled for today."));
         }
 
         return ListView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: medicines.length,
+          itemCount: todayMeds.length,
           itemBuilder: (context, index) {
-            final med = medicines[index];
-            final lastTaken = med.doseHistory.isNotEmpty
-                ? med.doseHistory.last
-                : null;
+            final med = todayMeds[index];
+            final now = DateTime.now();
+            final today = DateTime(now.year, now.month, now.day);
 
-            return ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                _getMedicineIcon(med.type),
-                color: Theme.of(context).primaryColor,
+            // Check if taken today
+            bool isTaken = med.doseHistory.any(
+              (d) =>
+                  d.year == today.year &&
+                  d.month == today.month &&
+                  d.day == today.day,
+            );
+
+            // Med sched time for today
+            final medTime = DateTime(
+              today.year,
+              today.month,
+              today.day,
+              med.time.hour,
+              med.time.minute,
+            );
+
+            String status;
+            Color statusColor;
+            IconData statusIcon;
+
+            if (isTaken) {
+              status = "Taken";
+              statusColor = Colors.green;
+              statusIcon = Icons.check_circle;
+            } else if (now.isAfter(medTime)) {
+              status = "Missed";
+              statusColor = Colors.red;
+              statusIcon = Icons.error_outline;
+            } else {
+              status = "Upcoming";
+              statusColor = Colors.orange;
+              statusIcon = Icons.access_time;
+            }
+
+            return Card(
+              elevation: 0,
+              color: Theme.of(context).cardColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: statusColor.withValues(alpha: 0.3)),
               ),
-              title: Text(med.name),
-              subtitle: Text(
-                lastTaken != null
-                    ? "Last taken: ${lastTaken.toString().split('.')[0]}"
-                    : "Never taken",
-              ),
-              trailing: Icon(
-                med.doseHistory.isNotEmpty
-                    ? Icons.check_circle
-                    : Icons.warning_amber,
-                color: med.doseHistory.isNotEmpty
-                    ? Colors.green
-                    : Colors.orange,
+              margin: const EdgeInsets.only(bottom: 12),
+              child: ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(statusIcon, color: statusColor, size: 24),
+                ),
+                title: Text(
+                  med.name,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text("${med.dosage} • ${med.frequency}"),
+                trailing: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      status,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      "${med.time.hour > 12 ? med.time.hour - 12 : med.time.hour}:${med.time.minute.toString().padLeft(2, '0')} ${med.time.hour >= 12 ? 'PM' : 'AM'}",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).textTheme.bodySmall?.color,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           },
         );
       },
     );
-  }
-
-  IconData _getMedicineIcon(String type) {
-    switch (type.toLowerCase()) {
-      case 'pill':
-        return Icons.medication;
-      case 'syrup':
-        return Icons.water_drop;
-      case 'injection':
-        return Icons.vaccines;
-      default:
-        return Icons.medication;
-    }
   }
 
   void _showEditNicknameSheet(String patientId, String currentNickname) {

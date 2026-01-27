@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'services/auth_service.dart';
-import 'services/database_service.dart';
+import '../../services/auth_service.dart';
+import '../../services/database_service.dart';
 import 'register_page.dart';
-import 'patient_dashboard.dart';
-import 'monitor_dashboard.dart';
-import 'admin_dashboard.dart';
+import '../patient/patient_dashboard.dart';
+import '../monitor/monitor_dashboard.dart';
+import '../admin/admin_dashboard.dart';
+import 'role_selection_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -111,8 +112,13 @@ class _LoginPageState extends State<LoginPage> {
                               borderColor,
                             ),
                             validator: (value) {
+                              final emailRegex = RegExp(
+                                r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                              );
                               if (value == null || value.isEmpty) {
                                 return 'Please enter your email';
+                              } else if (!emailRegex.hasMatch(value)) {
+                                return 'Please enter a valid email';
                               }
                               return null;
                             },
@@ -214,7 +220,7 @@ class _LoginPageState extends State<LoginPage> {
                           Align(
                             alignment: Alignment.center,
                             child: TextButton(
-                              onPressed: () {},
+                              onPressed: _showForgotPasswordDialog,
                               child: Text(
                                 "Forgot your password?",
                                 style: TextStyle(
@@ -292,41 +298,103 @@ class _LoginPageState extends State<LoginPage> {
           ];
 
           bool isAdminEmail = adminEmails.contains(email);
+          // --- CHECK EMAIL VERIFICATION (Bypass for Admins) ---
+          if (!isAdminEmail && !userCred.user!.emailVerified) {
+            // DO NOT Sign out immediately! Wait for user action.
+            if (mounted) {
+              await showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => AlertDialog(
+                  title: const Text("Email Not Verified"),
+                  content: const Text(
+                    "Please verify your email address to log in.\nCheck your inbox and spam folder.",
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () async {
+                        // Resend Email
+                        try {
+                          await userCred.user?.sendEmailVerification();
+                          if (context.mounted) {
+                            Navigator.pop(context); // Close dialog
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("Verification email sent!"),
+                              ),
+                            );
+                            await _authService.signOut(); // Now sign out
+                          }
+                        } catch (e) {
+                          // ignore errors if already sent recently
+                        }
+                      },
+                      child: const Text("Resend Email"),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        Navigator.pop(context); // Close dialog
+                        await _authService.signOut();
+                      },
+                      child: const Text("OK"),
+                    ),
+                  ],
+                ),
+              );
+              setState(() => _isLoading = false);
+            }
+            return; // Stop execution
+          }
+
+          // --- SYNC VERIFICATION STATUS ---
+          // Use a separate write so we don't block the UI flow unnecessarily, but good to await to ensure consistency
+          if (userCred.user!.emailVerified) {
+            await _dbService.verifyUser(uid);
+          }
 
           // Fetch user data
           Map<String, dynamic>? userData = await _dbService.getUserData(uid);
 
-          String role = 'patient'; // Default
+          String role = 'pending'; // Default
 
           if (isAdminEmail) {
-            // FORCE ADMIN ROLE
-            if (userData == null || userData['role'] != 'admin') {
-              // Create or Update doc to be Admin
-              await _dbService.updateUserRole(uid, 'admin');
-              role = 'admin';
-            } else {
-              role = 'admin';
-            }
-          } else {
+            // FORCE ADMIN & RESURRECT IF NEEDED
+            // This ensures email verification, role, and active status are all set correctly
+            // even if the user document was deleted.
+            await _dbService.ensureAdminUser(uid, email);
+            role = 'admin';
             // Normal User
+          } else {
             if (userData == null) {
-              // Missing doc? Create default patient doc to fix "hanging"
-              await _dbService.createUserDoc(uid, email, 'patient', 'User');
-              role = 'patient';
+              await _authService.signOut();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      "Your account has been deleted. Please contact support.",
+                    ),
+                    backgroundColor: Colors.red,
+                    duration: Duration(seconds: 5),
+                  ),
+                );
+                setState(() => _isLoading = false);
+                return;
+              }
             } else {
               role = userData['role'] ?? 'patient';
             }
 
-            // --- CRITICAL: CHECK IF BANNED ---
-            // Admins are exempt from bans (or handle differently)
+            // --- CRITICAL: CHECK IF BANNED OR DELETED ---
             bool isActive = userData?['active'] ?? true;
-            if (!isActive) {
+            bool isDeleted = userData?['isDeleted'] ?? false;
+
+            if (!isActive || isDeleted) {
               await _authService.signOut(); // Force logout
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text(
-                      "Your account has been suspended. Please contact support.",
+                      "Your account has been suspended or deleted. Please contact support.",
                     ),
                     backgroundColor: Colors.red,
                     duration: Duration(seconds: 5),
@@ -340,12 +408,10 @@ class _LoginPageState extends State<LoginPage> {
 
           if (mounted) {
             // 3. Route based on role
-            if (role == 'patient') {
+            if (role == 'admin') {
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const PatientDashboard(),
-                ),
+                MaterialPageRoute(builder: (context) => const AdminDashboard()),
               );
             } else if (role == 'monitor' || role == 'guardian') {
               Navigator.pushReplacement(
@@ -354,17 +420,19 @@ class _LoginPageState extends State<LoginPage> {
                   builder: (context) => const MonitorDashboard(),
                 ),
               );
-            } else if (role == 'admin') {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => const AdminDashboard()),
-              );
-            } else {
-              // Fallback
+            } else if (role == 'patient') {
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
                   builder: (context) => const PatientDashboard(),
+                ),
+              );
+            } else {
+              // Pending or Unknown -> Role Selection
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => RoleSelectionPage(uid: uid),
                 ),
               );
             }
@@ -391,6 +459,65 @@ class _LoginPageState extends State<LoginPage> {
         if (mounted) setState(() => _isLoading = false);
       }
     }
+  }
+
+  void _showForgotPasswordDialog() {
+    final TextEditingController resetEmailController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Reset Password"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Enter your email address and we'll send you a password reset link.",
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: resetEmailController,
+              decoration: const InputDecoration(
+                labelText: "Email",
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final email = resetEmailController.text.trim();
+              if (email.isNotEmpty) {
+                try {
+                  await _authService.sendPasswordResetEmail(email);
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          "Password reset email sent! Check your inbox and spam folder.",
+                        ),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text("Error: $e")));
+                  }
+                }
+              }
+            },
+            child: const Text("Send Link"),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildLabel(String text, Color color) {

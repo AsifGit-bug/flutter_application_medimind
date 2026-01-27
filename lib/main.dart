@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'splash_page.dart';
-import 'theme_manager.dart';
+import 'pages/auth/splash_page.dart';
+import 'theme/theme_manager.dart';
 import 'firebase_options.dart';
 
 void main() async {
