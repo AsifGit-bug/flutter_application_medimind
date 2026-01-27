@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'theme_manager.dart';
 import 'login_page.dart';
+import 'services/database_service.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -12,81 +13,42 @@ class AdminDashboard extends StatefulWidget {
 
 class _AdminDashboardState extends State<AdminDashboard> {
   int _selectedIndex = 0;
+  bool _showAdmins = false;
+  bool _showTotalUsers = false;
 
-  // --- Mock Data ---
-  final List<Map<String, dynamic>> _users = [
-    {
-      "id": 1,
-      "name": "John Patient",
-      "role": "Patient",
-      "active": true,
-      "email": "john@example.com",
-    },
-    {
-      "id": 2,
-      "name": "Dr. Smith",
-      "role": "Monitor",
-      "active": true,
-      "email": "dr.smith@example.com",
-    },
-    {
-      "id": 3,
-      "name": "Admin User",
-      "role": "Admin",
-      "active": true,
-      "email": "admin@medimind.com",
-    },
-    {
-      "id": 4,
-      "name": "Jane Doe",
-      "role": "Patient",
-      "active": false,
-      "email": "jane@example.com",
-    },
-    {
-      "id": 5,
-      "name": "Nurse Joy",
-      "role": "Monitor",
-      "active": true,
-      "email": "joy@example.com",
-    },
-  ];
-
-  final List<Map<String, dynamic>> _issues = [
-    {
-      "id": 101,
-      "title": "Login failing",
-      "status": "Open",
-      "user": "John Patient",
-      "date": "2023-10-25",
-    },
-    {
-      "id": 102,
-      "title": "Crash on history",
-      "status": "In Progress",
-      "user": "Dr. Smith",
-      "date": "2023-10-24",
-    },
-    {
-      "id": 103,
-      "title": "Typo in FAQ",
-      "status": "Resolved",
-      "user": "Jane Doe",
-      "date": "2023-10-20",
-    },
-  ];
+  // No Mock Users List anymore
 
   // Content Management Controllers
-  final TextEditingController _aboutUsController = TextEditingController(
-    text:
-        "MediMind is dedicated to helping patients manage their medication adherence through smart monitoring and reminders.",
-  );
-  final TextEditingController _privacyPolicyController = TextEditingController(
-    text: "Your data is secure with us. We adhere to HIPAA guidelines...",
-  );
-  final TextEditingController _faqController = TextEditingController(
-    text: "Q: How do I add medicine?\nA: Go to the Medicine tab and click +.",
-  );
+  final TextEditingController _aboutUsController = TextEditingController();
+  final TextEditingController _privacyPolicyController =
+      TextEditingController();
+  final TextEditingController _faqController = TextEditingController();
+
+  bool _isLoadingContent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadContent();
+  }
+
+  Future<void> _loadContent() async {
+    setState(() => _isLoadingContent = true);
+    try {
+      final content = await DatabaseService().getAppContent().first;
+      if (mounted) {
+        setState(() {
+          _aboutUsController.text = content['aboutUs'] ?? '';
+          _privacyPolicyController.text = content['privacyPolicy'] ?? '';
+          _faqController.text = content['faq'] ?? '';
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading content: $e");
+    } finally {
+      if (mounted) setState(() => _isLoadingContent = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -116,6 +78,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () {
+              // Logout
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(builder: (context) => const LoginPage()),
@@ -124,7 +87,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ),
         ],
       ),
-      body: _buildCurrentTab(),
+      // BODY NOW WRAPPED IN STREAM BUILDER
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: DatabaseService().getAllUsers(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text("Error: ${snapshot.error}"));
+          }
+          final users = snapshot.data ?? [];
+          return _buildCurrentTab(users);
+        },
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: theme.cardColor,
@@ -149,11 +125,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
               icon: Icon(Icons.dashboard),
               label: "Overview",
             ),
-            BottomNavigationBarItem(icon: Icon(Icons.people), label: "Users"),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.analytics),
-              label: "Reports",
-            ),
             BottomNavigationBarItem(
               icon: Icon(Icons.bug_report),
               label: "Issues",
@@ -173,29 +144,21 @@ class _AdminDashboardState extends State<AdminDashboard> {
       case 0:
         return "System Overview";
       case 1:
-        return "User Management";
-      case 2:
-        return "Reports & Analysis";
-      case 3:
         return "Issue Management";
-      case 4:
+      case 2:
         return "Content Management";
       default:
         return "Admin Dashboard";
     }
   }
 
-  Widget _buildCurrentTab() {
+  Widget _buildCurrentTab(List<Map<String, dynamic>> users) {
     switch (_selectedIndex) {
       case 0:
-        return _buildOverviewTab();
+        return _buildOverviewTab(users);
       case 1:
-        return _buildUsersTab();
-      case 2:
-        return _buildReportsTab();
-      case 3:
         return _buildIssuesTab();
-      case 4:
+      case 2:
         return _buildContentTab();
       default:
         return returnContainer();
@@ -205,462 +168,493 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget returnContainer() => Container();
 
   // --- 1. System Overview ---
-  Widget _buildOverviewTab() {
-    final activeUsers = _users.where((u) => u['active'] == true).length;
-    final inactiveUsers = _users.length - activeUsers;
+  // --- 1. System Overview ---
+  Widget _buildOverviewTab(List<Map<String, dynamic>> users) {
+    // Filter Lists
+    final admins = users
+        .where((u) => u['role']?.toString().toLowerCase() == "admin")
+        .take(3)
+        .toList();
+
+    final normalUsers = users
+        .where((u) => u['role']?.toString().toLowerCase() != "admin")
+        .toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildStatCard(
-            "Total Users",
-            _users.length.toString(),
-            Icons.group,
-            Colors.blue,
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatCard(
-                  "Active",
-                  activeUsers.toString(),
-                  Icons.check_circle,
-                  Colors.green,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildStatCard(
-                  "Inactive",
-                  inactiveUsers.toString(),
-                  Icons.cancel,
-                  Colors.grey,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatCard(
-                  "Patients",
-                  _users.where((u) => u['role'] == "Patient").length.toString(),
-                  Icons.medical_services,
-                  Colors.teal,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildStatCard(
-                  "Monitors",
-                  _users.where((u) => u['role'] == "Monitor").length.toString(),
-                  Icons.remove_red_eye,
-                  Colors.orange,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
           Text(
-            "Recent Activity",
+            "System Overview",
             style: Theme.of(
               context,
-            ).textTheme.titleLarge?.copyWith(fontSize: 18),
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 12),
-          _buildActivityItem("New user registration: John Doe", "2 mins ago"),
-          _buildActivityItem("Issue reported: Login Error", "1 hour ago"),
-          _buildActivityItem("Content updated: Privacy Policy", "Yesterday"),
-        ],
-      ),
-    );
-  }
+          const SizedBox(height: 20),
 
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: theme.textTheme.bodyLarge?.color,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 14,
-              color: theme.textTheme.bodyMedium?.color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActivityItem(String title, String time) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              color: Theme.of(context).textTheme.bodyLarge?.color,
-            ),
-          ),
-          Text(
-            time,
-            style: TextStyle(
-              color: Theme.of(context).textTheme.bodyMedium?.color,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // --- 2. User Management ---
-  Widget _buildUsersTab() {
-    return ListView.separated(
-      padding: const EdgeInsets.all(20),
-      itemCount: _users.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final user = _users[index];
-        final bool isActive = user['active'];
-        final theme = Theme.of(context);
-
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
+          // --- STATS CARDS ROW ---
+          Row(
             children: [
-              CircleAvatar(
-                backgroundColor: theme.primaryColor.withValues(alpha: 0.1),
-                child: Text(
-                  user['name'][0],
-                  style: TextStyle(color: theme.primaryColor),
+              // Admins Card
+              Expanded(
+                child: _buildInteractiveCard(
+                  title: "Admins",
+                  count: admins.length.toString(),
+                  icon: Icons.admin_panel_settings,
+                  color: Colors.purple,
+                  isSelected: _showAdmins,
+                  onTap: () {
+                    setState(() {
+                      _showAdmins = !_showAdmins;
+                      // Optional: Auto-close others if we want accordion style
+                      // _showTotalUsers = false;
+                    });
+                  },
                 ),
               ),
               const SizedBox(width: 16),
+              // Total Users Card
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      user['name'],
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: theme.textTheme.bodyLarge?.color,
-                      ),
-                    ),
-                    Text(
-                      user['role'],
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.textTheme.bodyMedium?.color,
-                      ),
-                    ),
-                    Text(
-                      user['email'],
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.textTheme.bodyMedium?.color,
-                      ),
-                    ),
-                  ],
+                child: _buildInteractiveCard(
+                  title: "Total Users",
+                  count: normalUsers.length.toString(),
+                  icon: Icons.group,
+                  color: Colors.blue,
+                  isSelected: _showTotalUsers,
+                  onTap: () {
+                    setState(() {
+                      _showTotalUsers = !_showTotalUsers;
+                    });
+                  },
                 ),
               ),
-              Switch(
-                value: isActive,
-                onChanged: (val) {
-                  setState(() {
-                    user['active'] = val;
-                  });
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          // --- ADMINS LIST ---
+          if (_showAdmins) ...[
+            Text(
+              "Administrative Staff",
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (admins.isEmpty)
+              const Text("No admins found")
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: admins.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final admin = admins[index];
+                  return Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.purple.withValues(alpha: 0.1),
+                        child: Icon(
+                          Icons.admin_panel_settings,
+                          color: Colors.purple,
+                        ),
+                      ),
+                      title: Text(
+                        admin['name'] ?? 'Unknown Admin',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () => _showAdminDetails(admin),
+                    ),
+                  );
                 },
-                activeTrackColor: Colors.green,
               ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+            const SizedBox(height: 24),
+          ],
 
-  // --- 3. Reports & Analysis ---
-  Widget _buildReportsTab() {
-    final theme = Theme.of(context);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("Adherence Overview", style: theme.textTheme.titleLarge),
-          const SizedBox(height: 20),
-          _buildChartPlaceholder("Overall Adherence", "85%"),
-          const SizedBox(height: 24),
-          Text("Missed Dose Trends", style: theme.textTheme.titleLarge),
-          const SizedBox(height: 20),
-          Container(
-            height: 200,
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: theme.cardColor,
-              borderRadius: BorderRadius.circular(16),
+          // --- USERS LIST ---
+          if (_showTotalUsers) ...[
+            Text(
+              "Registered Users",
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildBar(0.4, "Mon", Colors.red),
-                _buildBar(0.2, "Tue", Colors.red),
-                _buildBar(0.6, "Wed", Colors.red),
-                _buildBar(0.3, "Thu", Colors.red),
-                _buildBar(0.1, "Fri", Colors.red),
-                _buildBar(0.5, "Sat", Colors.red),
-                _buildBar(0.2, "Sun", Colors.red),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text("Summary", style: theme.textTheme.titleLarge),
-          const SizedBox(height: 12),
-          _buildSummaryItem("Daily Average", "92% Adherence"),
-          _buildSummaryItem("Weekly Average", "88% Adherence"),
-          _buildSummaryItem("Most Missed", "Lunch Doses"),
+            const SizedBox(height: 12),
+            if (normalUsers.isEmpty)
+              const Text("No users found")
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: normalUsers.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final user = normalUsers[index];
+                  final bool isActive = user['active'] ?? true;
+                  final name = user['name'] ?? 'Unknown';
+                  final email = user['email'] ?? 'No Email';
+                  final initial = name.isNotEmpty ? name[0] : '?';
+
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: Theme.of(
+                            context,
+                          ).primaryColor.withValues(alpha: 0.1),
+                          child: Text(
+                            initial,
+                            style: TextStyle(
+                              color: Theme.of(context).primaryColor,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(
+                                    context,
+                                  ).textTheme.bodyLarge?.color,
+                                ),
+                              ),
+                              Text(
+                                email,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(
+                                    context,
+                                  ).textTheme.bodyMedium?.color,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          children: [
+                            Switch(
+                              value: isActive,
+                              onChanged: (val) async {
+                                await DatabaseService().toggleUserActiveStatus(
+                                  user['id'],
+                                  val,
+                                );
+                              },
+                              activeTrackColor: Colors.green,
+                              activeColor: Colors.white,
+                            ),
+                            Text(
+                              isActive ? "Active" : "Banned",
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: isActive ? Colors.green : Colors.red,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildChartPlaceholder(String title, String mainValue) {
+  Widget _buildInteractiveCard({
+    required String title,
+    required String count,
+    required IconData icon,
+    required Color color,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
     final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(16),
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.1) : theme.cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: isSelected
+              ? Border.all(color: color, width: 2)
+              : Border.all(color: Colors.transparent, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? color.withValues(alpha: 0.2)
+                    : color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              count,
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: theme.textTheme.bodyLarge?.color,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.textTheme.bodyMedium?.color,
+              ),
+            ),
+          ],
+        ),
       ),
-      child: Column(
-        children: [
-          Text(
-            title,
-            style: TextStyle(color: theme.textTheme.bodyMedium?.color),
-          ),
-          const SizedBox(height: 16),
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                height: 150,
-                width: 150,
-                child: CircularProgressIndicator(
-                  value: 0.85,
-                  strokeWidth: 12,
-                  backgroundColor: theme.dividerColor,
-                  color: theme.colorScheme.secondary,
-                ),
+    );
+  }
+
+  void _showAdminDetails(Map<String, dynamic> admin) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: Colors.purple.withValues(alpha: 0.1),
+              child: const Icon(
+                Icons.admin_panel_settings,
+                color: Colors.purple,
               ),
-              Text(
-                mainValue,
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: theme.textTheme.bodyLarge?.color,
-                ),
-              ),
-            ],
+            ),
+            const SizedBox(width: 12),
+            const Text("Admin Details"),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _detailRow("Name", admin['name']),
+            const SizedBox(height: 12),
+            _detailRow("Email", admin['email']),
+            const SizedBox(height: 12),
+            _detailRow("Role", "System Administrator"),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBar(double heightFactor, String label, Color color) {
+  Widget _detailRow(String label, String? value) {
     return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          height: 120 * heightFactor,
-          width: 20,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(6),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.grey,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(height: 8),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 4),
+        Text(value ?? "N/A", style: const TextStyle(fontSize: 16)),
       ],
     );
   }
 
-  Widget _buildSummaryItem(String label, String value) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: Theme.of(context).textTheme.bodyMedium?.color,
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).textTheme.bodyLarge?.color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // --- 2. User Management ---
 
-  // --- 4. Issue Management ---
   Widget _buildIssuesTab() {
-    return ListView.separated(
-      padding: const EdgeInsets.all(20),
-      itemCount: _issues.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final issue = _issues[index];
-        final theme = Theme.of(context);
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: DatabaseService().getAllBugs(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text("Error: ${snapshot.error}"));
+        }
 
-        Color statusColor = Colors.grey;
-        if (issue['status'] == 'Open') statusColor = Colors.red;
-        if (issue['status'] == 'In Progress') statusColor = Colors.orange;
-        if (issue['status'] == 'Resolved') statusColor = Colors.green;
+        final bugs = snapshot.data ?? [];
 
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border(left: BorderSide(color: statusColor, width: 4)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    issue['title'],
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: theme.textTheme.bodyLarge?.color,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      issue['status'],
-                      style: TextStyle(
-                        color: statusColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                "Reported by ${issue['user']} on ${issue['date']}",
-                style: TextStyle(
-                  fontSize: 12,
-                  color: theme.textTheme.bodyMedium?.color,
+        if (bugs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.check_circle_outline, size: 80, color: Colors.green),
+                const SizedBox(height: 16),
+                const Text(
+                  "No issues reported",
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  if (issue['status'] != 'Resolved')
-                    TextButton(
-                      child: const Text("Mark Resolved"),
-                      onPressed: () {
-                        setState(() {
-                          issue['status'] = "Resolved";
-                        });
-                      },
-                    ),
-                  if (issue['status'] == 'Open')
-                    TextButton(
-                      child: const Text("Mark In Progress"),
-                      onPressed: () {
-                        setState(() {
-                          issue['status'] = "In Progress";
-                        });
-                      },
-                    ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(20),
+          itemCount: bugs.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final bug = bugs[index];
+            final theme = Theme.of(context);
+            final bool isResolved = bug['status'] == 'Resolved';
+            final Color statusColor = isResolved ? Colors.green : Colors.red;
+
+            return Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.cardColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border(left: BorderSide(color: statusColor, width: 4)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
                 ],
               ),
-            ],
-          ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          bug['title'] ?? 'No Title',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: theme.textTheme.bodyLarge?.color,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          bug['status'] ?? 'Open',
+                          style: TextStyle(
+                            color: statusColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    bug['description'] ?? 'No Description',
+                    style: TextStyle(color: theme.textTheme.bodyLarge?.color),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    "Reported by ${bug['userEmail']} on ${bug['date']}",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.textTheme.bodyMedium?.color,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      // Delete Button
+                      IconButton(
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () async {
+                          // Confirm delete logic could go here, for now quick delete
+                          await DatabaseService().deleteBug(bug['id']);
+                        },
+                      ),
+                      // Mark Done Button
+                      if (!isResolved) ...[
+                        const SizedBox(width: 8),
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            await DatabaseService().resolveBug(bug['id']);
+                          },
+                          icon: const Icon(Icons.check, size: 16),
+                          label: const Text("Mark Done"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -682,18 +676,39 @@ class _AdminDashboardState extends State<AdminDashboard> {
             width: double.infinity,
             height: 50,
             child: ElevatedButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Content updated successfully!"),
-                  ),
-                );
+              onPressed: () async {
+                setState(() => _isLoadingContent = true);
+                try {
+                  await DatabaseService().updateAppContent({
+                    'aboutUs': _aboutUsController.text,
+                    'privacyPolicy': _privacyPolicyController.text,
+                    'faq': _faqController.text,
+                  });
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Content updated successfully!"),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Error updating: $e")),
+                    );
+                  }
+                } finally {
+                  if (mounted) setState(() => _isLoadingContent = false);
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).primaryColor,
                 foregroundColor: Colors.white,
               ),
-              child: const Text("Save All Changes"),
+              child: _isLoadingContent
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text("Save All Changes"),
             ),
           ),
         ],

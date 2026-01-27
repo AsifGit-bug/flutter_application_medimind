@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'medicine_model.dart';
 import 'add_medicine_page.dart';
 import 'medicine_detail_page.dart';
 import 'login_page.dart';
 import 'monitor_dashboard.dart';
 import 'theme_manager.dart';
+import 'services/database_service.dart';
+import 'services/auth_service.dart';
+import 'content_display_page.dart';
+import 'report_bug_page.dart';
 
 class PatientDashboard extends StatefulWidget {
   const PatientDashboard({super.key});
@@ -16,18 +21,24 @@ class PatientDashboard extends StatefulWidget {
 
 class _PatientDashboardState extends State<PatientDashboard> {
   int _selectedIndex = 0;
-  final List<Medicine> _medicines = [];
+
+  // Services
+  final AuthService _auth = AuthService();
+  final DatabaseService _db = DatabaseService();
+  late User _currentUser;
 
   // History Tab State
   String _historyView = "Timeline";
   String _historyFilter = "All";
 
-  // Stats (Placeholder)
-  int get _takenCount => 0;
-  int get _pendingCount => _medicines.length;
+  @override
+  void initState() {
+    super.initState();
+    _currentUser = _auth.currentUser!;
+  }
 
   void _navigateToAddMedicine() async {
-    final result = await Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const AddMedicinePage()),
     );
@@ -134,7 +145,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
       floatingActionButton: _selectedIndex == 0 || _selectedIndex == 1
           ? FloatingActionButton(
               onPressed: _navigateToAddMedicine,
-              backgroundColor: theme.colorScheme.primary, // Ensure contrast
+              backgroundColor: theme.colorScheme.primary,
               child: Icon(Icons.add, color: theme.colorScheme.onPrimary),
             )
           : null,
@@ -157,7 +168,6 @@ class _PatientDashboardState extends State<PatientDashboard> {
   }
 
   Widget _buildThemeToggle({Color? color}) {
-    // If color is not provided, adaptive default
     final iconColor = color ?? Theme.of(context).iconTheme.color;
     return IconButton(
       icon: Icon(
@@ -209,7 +219,41 @@ class _PatientDashboardState extends State<PatientDashboard> {
     );
   }
 
-  // --- SETTINGS TAB ---
+  Widget _buildSwitchDashboardIcon({Color? color}) {
+    final iconColor = color ?? Theme.of(context).iconTheme.color;
+    return IconButton(
+      icon: Icon(Icons.swap_horiz, color: iconColor),
+      onPressed: () {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text("Switch Dashboard"),
+            content: const Text(
+              "Are you sure you want to switch to Monitor Dashboard?",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("No"),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const MonitorDashboard(),
+                    ),
+                  );
+                },
+                child: const Text("Yes"),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildSettingsTab() {
     final theme = Theme.of(context);
@@ -260,25 +304,55 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 _buildSettingsTile(
                   Icons.person_outline,
                   "Personal Data",
-                  () {},
+                  _showProfileDetails,
                 ),
-                _buildSettingsTile(Icons.people_outline, "Monitor", () {}),
+                _buildSettingsTile(
+                  Icons.people_outline,
+                  "Monitor Requests",
+                  () => _showMonitorRequests(),
+                ),
                 _buildSettingsTile(
                   Icons.notifications_none,
                   "Notifications",
                   () {},
                 ),
-
                 const SizedBox(height: 24),
                 _buildSettingsSectionHeader("Support"),
-                _buildSettingsTile(Icons.info_outline, "About Us", () {}),
-                _buildSettingsTile(Icons.help_outline, "Help & FAQ", () {}),
+                _buildSettingsTile(Icons.bug_report, "Report an Issue", () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ReportBugPage(),
+                    ),
+                  );
+                }),
+                _buildSettingsTile(Icons.info_outline, "About Us", () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ContentDisplayPage(
+                        title: "About Us",
+                        contentKey: "aboutUs",
+                      ),
+                    ),
+                  );
+                }),
+                _buildSettingsTile(Icons.help_outline, "Help & FAQ", () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ContentDisplayPage(
+                        title: "Help & FAQ",
+                        contentKey: "faq",
+                      ),
+                    ),
+                  );
+                }),
                 _buildSettingsTile(
                   Icons.privacy_tip_outlined,
                   "Privacy Policy",
                   () {},
                 ),
-
                 const SizedBox(height: 32),
                 SizedBox(
                   width: double.infinity,
@@ -360,7 +434,6 @@ class _PatientDashboardState extends State<PatientDashboard> {
               ),
             ),
             const SizedBox(height: 24),
-
             if (_historyView == "Timeline")
               _buildTimelineView()
             else
@@ -446,8 +519,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                               ? FontWeight.bold
                               : FontWeight.normal,
                         ),
-                        backgroundColor:
-                            theme.scaffoldBackgroundColor, // Adaptive
+                        backgroundColor: theme.scaffoldBackgroundColor,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(20),
                           side: BorderSide(color: theme.dividerColor),
@@ -513,9 +585,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
       statusIcon = Icons.access_time;
       statusColor = Colors.grey;
     }
-
     final theme = Theme.of(context);
-
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -566,10 +636,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
-                              color: theme
-                                  .textTheme
-                                  .bodyLarge!
-                                  .color, // Ensure high contrast
+                              color: theme.textTheme.bodyLarge!.color,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -1034,7 +1101,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
     );
   }
 
-  Widget _buildMedicinesTab() {
+  Widget _buildMedicinesTab(List<Medicine> medicines) {
     final theme = Theme.of(context);
     return SingleChildScrollView(
       child: Column(
@@ -1045,7 +1112,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  "My Medicines",
+                  'My Medicines',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
@@ -1058,10 +1125,10 @@ class _PatientDashboardState extends State<PatientDashboard> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: _medicines.isEmpty
+            child: medicines.isEmpty
                 ? _buildEmptyState()
                 : Column(
-                    children: _medicines
+                    children: medicines
                         .map((m) => _buildMedicineCard(m))
                         .toList(),
                   ),
@@ -1070,8 +1137,6 @@ class _PatientDashboardState extends State<PatientDashboard> {
       ),
     );
   }
-
-  // --- WIDGET HELPER METHODS ---
 
   Widget _buildStatCard(
     String title,
@@ -1133,10 +1198,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
         gradient: const LinearGradient(
-          colors: [
-            Color(0xFF311B92),
-            Color(0xFF673AB7),
-          ], // Deep Purple Gradient
+          colors: [Color(0xFF311B92), Color(0xFF673AB7)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -1154,38 +1216,35 @@ class _PatientDashboardState extends State<PatientDashboard> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Next Dose",
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    "Metformin 500mg",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
-                  shape: BoxShape.circle,
+                  borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Icon(
-                  Icons.notifications_active,
-                  color: Colors.white,
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.notifications_active,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                    SizedBox(width: 6),
+                    Text(
+                      "Next Dose",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              const Icon(Icons.more_horiz, color: Colors.white70),
             ],
           ),
           const SizedBox(height: 20),
@@ -1211,17 +1270,16 @@ class _PatientDashboardState extends State<PatientDashboard> {
                   backgroundColor: Colors.white,
                   foregroundColor: const Color(0xFF673AB7),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
+                  elevation: 0,
                 ),
-                child: const Text("Mark Taken"),
+                child: const Text(
+                  "Mark as Taken",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
               ),
-            ],
-          ),
+            ),
         ],
       ),
     );
@@ -1347,9 +1405,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: theme.brightness == Brightness.dark
-              ? Colors.grey.withValues(alpha: 0.1)
-              : Colors.grey.withValues(alpha: 0.1),
+          color: Colors.grey.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(icon, color: theme.primaryColor, size: 20),

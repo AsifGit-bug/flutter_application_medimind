@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'services/auth_service.dart';
+import 'services/database_service.dart';
 import 'register_page.dart';
 import 'patient_dashboard.dart';
 import 'monitor_dashboard.dart';
+import 'admin_dashboard.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -15,6 +19,10 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _obscurePassword = true;
+
+  final AuthService _authService = AuthService();
+  final DatabaseService _dbService = DatabaseService();
+  bool _isLoading = false;
 
   @override
   Widget build(BuildContext context) {
@@ -187,13 +195,17 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                                 elevation: 0,
                               ),
-                              child: const Text(
-                                "Sign In",
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                              child: _isLoading
+                                  ? const CircularProgressIndicator(
+                                      color: Colors.white,
+                                    )
+                                  : const Text(
+                                      "Sign In",
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -255,48 +267,119 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  void _handleLogin() {
+  Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
-      // Show role selection dialog instead of hardcoded routing
-      _showRoleSelectionDialog();
-    }
-  }
+      setState(() => _isLoading = true);
 
-  void _showRoleSelectionDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text("Who is using this app?"),
-        content: const Text("Please select your role to continue."),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
+      try {
+        // 1. Sign In
+        UserCredential userCred = await _authService.signIn(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
+        );
+
+        if (userCred.user != null) {
+          String uid = userCred.user!.uid;
+          String email = _emailController.text.trim();
+
+          // ---------------------------------------------------------
+          // SELF-HEALING & AUTO-ADMIN LOGIC
+          // ---------------------------------------------------------
+          final adminEmails = [
+            'asifabar43@gmail.com',
+            'srhridoy133@gmail.com',
+            'jahanispa02@gmail.com',
+          ];
+
+          bool isAdminEmail = adminEmails.contains(email);
+
+          // Fetch user data
+          Map<String, dynamic>? userData = await _dbService.getUserData(uid);
+
+          String role = 'patient'; // Default
+
+          if (isAdminEmail) {
+            // FORCE ADMIN ROLE
+            if (userData == null || userData['role'] != 'admin') {
+              // Create or Update doc to be Admin
+              await _dbService.updateUserRole(uid, 'admin');
+              role = 'admin';
+            } else {
+              role = 'admin';
+            }
+          } else {
+            // Normal User
+            if (userData == null) {
+              // Missing doc? Create default patient doc to fix "hanging"
+              await _dbService.createUserDoc(uid, email, 'patient', 'User');
+              role = 'patient';
+            } else {
+              role = userData['role'] ?? 'patient';
+            }
+
+            // --- CRITICAL: CHECK IF BANNED ---
+            // Admins are exempt from bans (or handle differently)
+            bool isActive = userData?['active'] ?? true;
+            if (!isActive) {
+              await _authService.signOut(); // Force logout
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      "Your account has been suspended. Please contact support.",
+                    ),
+                    backgroundColor: Colors.red,
+                    duration: Duration(seconds: 5),
+                  ),
+                );
+                setState(() => _isLoading = false);
+                return; // Stop execution
+              }
+            }
+          }
+
+          if (mounted) {
+            // 3. Route based on role
+            if (role == 'patient') {
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
                   builder: (context) => const PatientDashboard(),
                 ),
               );
-            },
-            child: const Text("Patient"),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
+            } else if (role == 'monitor' || role == 'guardian') {
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
                   builder: (context) => const MonitorDashboard(),
                 ),
               );
-            },
-            child: const Text("Monitor"),
-          ),
-        ],
-      ),
-    );
+            } else if (role == 'admin') {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const AdminDashboard()),
+              );
+            } else {
+              // Fallback
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PatientDashboard(),
+                ),
+              );
+            }
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Login Failed: ${e.toString()}")),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    }
   }
 
   Widget _buildLabel(String text, Color color) {
