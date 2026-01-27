@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'patient_dashboard.dart';
 import 'monitor_dashboard.dart';
+import 'services/auth_service.dart';
+import 'services/database_service.dart';
+import 'login_page.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -22,13 +26,60 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
 
-  void _handleRegister() {
+  final AuthService _authService = AuthService();
+  final DatabaseService _dbService = DatabaseService();
+  bool _isLoading = false;
+
+  Future<void> _handleRegister() async {
     if (_formKey.currentState!.validate()) {
-      _showRoleSelectionDialog();
+      setState(() => _isLoading = true);
+      try {
+        String roleToRegister = 'patient'; // Default
+        String email = _emailController.text.trim().toLowerCase();
+
+        // Admin logic
+        final adminEmails = [
+          'asifabar43@gmail.com',
+          'srhridoy133@gmail.com',
+          'jahanispa02@gmail.com',
+        ];
+        if (adminEmails.contains(email)) {
+          roleToRegister = 'admin';
+        }
+
+        UserCredential result = await _authService.signUp(
+          email: email,
+          password: _passwordController.text,
+          role: roleToRegister,
+          name: _nameController.text.trim(),
+        );
+
+        if (mounted) {
+          if (roleToRegister == 'admin') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Admin account created!")),
+            );
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const LoginPage()),
+            );
+          } else {
+            _showRoleSelectionDialog(result.user!.uid);
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("Error: ${e.toString()}")));
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
     }
   }
 
-  void _showRoleSelectionDialog() {
+  void _showRoleSelectionDialog(String uid) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -49,13 +100,14 @@ class _RegisterPageState extends State<RegisterPage> {
             child: const Text("Patient"),
           ),
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pushReplacement(
-                context,
+            onPressed: () async {
+              final navigator = Navigator.of(context);
+              await _dbService.updateUserRole(uid, 'monitor');
+              if (!mounted) return;
+              navigator.pushReplacement(
                 MaterialPageRoute(
                   builder: (context) => const MonitorDashboard(),
-                ), // Assuming MonitorDashboard is imported or needs import
+                ),
               );
             },
             child: const Text("Monitor"),
@@ -270,18 +322,23 @@ class _RegisterPageState extends State<RegisterPage> {
                               onPressed: _isLoading ? null : _handleRegister,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: primaryColor,
-                                foregroundColor: theme.colorScheme.onPrimary,
+                                foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(16),
                                 ),
                                 elevation: 0,
                               ),
                               child: _isLoading
-                                  ? const CircularProgressIndicator(
-                                      color: Colors.white,
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
                                     )
                                   : const Text(
-                                      "Sign Up",
+                                      "Create Account",
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
@@ -370,6 +427,11 @@ class _RegisterPageState extends State<RegisterPage> {
         borderSide: const BorderSide(color: Colors.red),
       ),
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
   }
 
   @override

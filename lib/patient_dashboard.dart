@@ -27,6 +27,11 @@ class _PatientDashboardState extends State<PatientDashboard> {
   final DatabaseService _db = DatabaseService();
   late User _currentUser;
 
+  // State
+  final List<Medicine> _medicines = [];
+  final int _takenCount = 0;
+  final int _pendingCount = 0;
+
   // History Tab State
   String _historyView = "Timeline";
   String _historyFilter = "All";
@@ -38,9 +43,11 @@ class _PatientDashboardState extends State<PatientDashboard> {
   }
 
   void _navigateToAddMedicine() async {
-    await Navigator.push(
+    final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const AddMedicinePage()),
+      MaterialPageRoute(
+        builder: (context) => AddMedicinePage(userId: _currentUser.uid),
+      ),
     );
 
     if (!mounted) return;
@@ -66,7 +73,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
       MaterialPageRoute(
         builder: (context) => MedicineDetailPage(
           medicine: medicine,
-          onDelete: () {
+          userId: _currentUser.uid,
+          onDelete: () async {
             setState(() {
               _medicines.removeWhere((m) => m.id == medicine.id);
             });
@@ -155,15 +163,15 @@ class _PatientDashboardState extends State<PatientDashboard> {
   Widget _buildCurrentTab() {
     switch (_selectedIndex) {
       case 0:
-        return _buildHomeTab();
+        return _buildHomeTab(_medicines);
       case 1:
-        return _buildMedicinesTab();
+        return _buildMedicinesTab(_medicines);
       case 2:
-        return _buildHistoryTab();
+        return _buildHistoryTab(_medicines);
       case 3:
         return _buildSettingsTab();
       default:
-        return _buildHomeTab();
+        return _buildHomeTab(_medicines);
     }
   }
 
@@ -219,42 +227,6 @@ class _PatientDashboardState extends State<PatientDashboard> {
     );
   }
 
-  Widget _buildSwitchDashboardIcon({Color? color}) {
-    final iconColor = color ?? Theme.of(context).iconTheme.color;
-    return IconButton(
-      icon: Icon(Icons.swap_horiz, color: iconColor),
-      onPressed: () {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text("Switch Dashboard"),
-            content: const Text(
-              "Are you sure you want to switch to Monitor Dashboard?",
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("No"),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const MonitorDashboard(),
-                    ),
-                  );
-                },
-                child: const Text("Yes"),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildSettingsTab() {
     final theme = Theme.of(context);
     return SingleChildScrollView(
@@ -268,7 +240,10 @@ class _PatientDashboardState extends State<PatientDashboard> {
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
-                  children: [_buildThemeToggle(color: Colors.white)],
+                  children: [
+                    _buildSwitchDashboardIcon(color: Colors.white),
+                    _buildThemeToggle(color: Colors.white),
+                  ],
                 ),
                 CircleAvatar(
                   radius: 40,
@@ -397,7 +372,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
   // --- HISTORY TAB ---
 
-  Widget _buildHistoryTab() {
+  Widget _buildHistoryTab(List<Medicine> medicines) {
     final theme = Theme.of(context);
     return SafeArea(
       child: SingleChildScrollView(
@@ -415,7 +390,14 @@ class _PatientDashboardState extends State<PatientDashboard> {
                     color: theme.textTheme.bodyLarge!.color,
                   ),
                 ),
-                _buildThemeToggle(color: theme.textTheme.bodyLarge!.color),
+                Row(
+                  children: [
+                    _buildSwitchDashboardIcon(
+                      color: theme.textTheme.bodyLarge!.color,
+                    ),
+                    _buildThemeToggle(color: theme.textTheme.bodyLarge!.color),
+                  ],
+                ),
               ],
             ),
             const SizedBox(height: 20),
@@ -970,7 +952,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
   // --- HOME & MEDICINE TABS ---
 
-  Widget _buildHomeTab() {
+  Widget _buildHomeTab(List<Medicine> medicines) {
     final theme = Theme.of(context);
     return SingleChildScrollView(
       child: Stack(
@@ -995,6 +977,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 60, 20, 20),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     GestureDetector(
                       onTap: _showProfileDetails,
@@ -1119,7 +1102,14 @@ class _PatientDashboardState extends State<PatientDashboard> {
                     color: theme.textTheme.bodyLarge!.color,
                   ),
                 ),
-                _buildThemeToggle(color: theme.textTheme.bodyLarge!.color),
+                Row(
+                  children: [
+                    _buildSwitchDashboardIcon(
+                      color: theme.textTheme.bodyLarge!.color,
+                    ),
+                    _buildThemeToggle(color: theme.textTheme.bodyLarge!.color),
+                  ],
+                ),
               ],
             ),
           ),
@@ -1192,6 +1182,18 @@ class _PatientDashboardState extends State<PatientDashboard> {
   }
 
   Widget _buildHeroSection() {
+    Medicine? nextDose;
+    if (_medicines.isNotEmpty) {
+      final now = DateTime.now();
+      try {
+        nextDose = _medicines.firstWhere(
+          (m) => !m.doseHistory.any((d) => isSameDay(d, now)),
+        );
+      } catch (e) {
+        // Silently ignore
+        // No pending doses found
+      }
+    }
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -1248,24 +1250,34 @@ class _PatientDashboardState extends State<PatientDashboard> {
             ],
           ),
           const SizedBox(height: 20),
-          Row(
-            children: [
-              const Icon(
-                Icons.access_time_filled,
-                color: Colors.white70,
-                size: 16,
-              ),
-              const SizedBox(width: 6),
-              const Text(
-                "Scheduled for 8:00 PM",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const Spacer(),
-              ElevatedButton(
-                onPressed: () {},
+          Text(
+            nextDose != null ? nextDose.name : "All Clear!",
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            nextDose != null
+                ? "Scheduled for ${DateFormat('h:mm a').format(nextDose.time)}"
+                : "You have taken all your meds.",
+            style: const TextStyle(color: Colors.white70, fontSize: 16),
+          ),
+          const SizedBox(height: 20),
+          if (nextDose != null)
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () async {
+                  await _db.logDose(nextDose!.id, DateTime.now());
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Dose logged successfully!")),
+                  );
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
                   foregroundColor: const Color(0xFF673AB7),
@@ -1474,6 +1486,128 @@ class _PatientDashboardState extends State<PatientDashboard> {
           ),
         ),
       ],
+    );
+  }
+
+  bool isSameDay(DateTime? a, DateTime? b) {
+    if (a == null || b == null) return false;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  void _showMonitorRequests() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "Monitor Requests",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).textTheme.bodyLarge?.color,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: _db.getPendingRequests(_currentUser.uid),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return Center(child: Text("Error: ${snapshot.error}"));
+                    }
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final requests = snapshot.data ?? [];
+                    if (requests.isEmpty) {
+                      return const Center(child: Text("No pending requests."));
+                    }
+                    return ListView.builder(
+                      itemCount: requests.length,
+                      itemBuilder: (context, index) {
+                        final req = requests[index];
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: ListTile(
+                            leading: const CircleAvatar(
+                              child: Icon(Icons.person),
+                            ),
+                            title: Text(
+                              req['monitorEmail'] ?? 'Unknown Monitor',
+                            ),
+                            subtitle: const Text(
+                              "Wants to view your medicine data",
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.check,
+                                    color: Colors.green,
+                                  ),
+                                  onPressed: () async {
+                                    final messenger = ScaffoldMessenger.of(
+                                      context,
+                                    );
+                                    final navigator = Navigator.of(context);
+                                    await _db.acceptRequest(
+                                      req['id'],
+                                      req['monitorId'],
+                                      _currentUser.uid,
+                                    );
+                                    if (mounted) {
+                                      navigator.pop();
+                                      messenger.showSnackBar(
+                                        const SnackBar(
+                                          content: Text("Request Accepted"),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.close,
+                                    color: Colors.red,
+                                  ),
+                                  onPressed: () async {
+                                    final messenger = ScaffoldMessenger.of(
+                                      context,
+                                    );
+                                    final navigator = Navigator.of(context);
+                                    await _db.declineRequest(req['id']);
+                                    if (mounted) {
+                                      navigator.pop();
+                                      messenger.showSnackBar(
+                                        const SnackBar(
+                                          content: Text("Request Declined"),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

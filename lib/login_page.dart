@@ -280,7 +280,7 @@ class _LoginPageState extends State<LoginPage> {
 
         if (userCred.user != null) {
           String uid = userCred.user!.uid;
-          String email = _emailController.text.trim();
+          String email = _emailController.text.trim().toLowerCase();
 
           // ---------------------------------------------------------
           // SELF-HEALING & AUTO-ADMIN LOGIC
@@ -370,11 +370,22 @@ class _LoginPageState extends State<LoginPage> {
             }
           }
         }
+      } on FirebaseAuthException catch (e) {
+        if (mounted) {
+          String message = "Login Failed: ${e.message}";
+          if (e.code == 'invalid-credential') {
+            message =
+                "Invalid email or password. Please check your credentials.";
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message), backgroundColor: Colors.red),
+          );
+        }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Login Failed: ${e.toString()}")),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("Error: ${e.toString()}")));
         }
       } finally {
         if (mounted) setState(() => _isLoading = false);

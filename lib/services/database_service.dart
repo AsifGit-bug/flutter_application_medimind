@@ -261,6 +261,20 @@ class DatabaseService {
     }, SetOptions(merge: true));
   }
 
+  // 7. Remove Patient (Duplicate logic for naming consistency)
+  Future<void> removePatientFromMonitor(
+    String monitorId,
+    String patientId,
+  ) async {
+    await _firestore.collection('users').doc(monitorId).update({
+      'linkedPatients': FieldValue.arrayRemove([patientId]),
+      'patientNicknames.$patientId': FieldValue.delete(),
+    });
+    await _firestore.collection('users').doc(patientId).update({
+      'caregivers': FieldValue.arrayRemove([monitorId]),
+    });
+  }
+
   // Get Linked Patients Stream
   Stream<List<Map<String, dynamic>>> getLinkedPatients(String monitorId) {
     return _firestore.collection('users').doc(monitorId).snapshots().asyncMap((

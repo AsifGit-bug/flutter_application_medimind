@@ -369,7 +369,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                 );
                               },
                               activeTrackColor: Colors.green,
-                              activeColor: Colors.white,
+                              activeThumbColor: Colors.white,
                             ),
                             Text(
                               isActive ? "Active" : "Banned",
