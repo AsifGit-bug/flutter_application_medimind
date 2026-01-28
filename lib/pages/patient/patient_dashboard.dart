@@ -5,7 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/medicine_model.dart';
 import 'add_medicine_page.dart';
 import 'medicine_detail_page.dart';
-import 'my_caregivers_page.dart'; // NEW IMPORT
+import 'my_caregivers_page.dart';
 import '../auth/login_page.dart';
 import '../monitor/monitor_dashboard.dart';
 import '../../theme/theme_manager.dart';
@@ -13,6 +13,7 @@ import '../../services/database_service.dart';
 import '../../services/auth_service.dart';
 import '../common/content_display_page.dart';
 import '../common/report_bug_page.dart';
+import '../../utils/translations.dart';
 
 class PatientDashboard extends StatefulWidget {
   const PatientDashboard({super.key});
@@ -35,6 +36,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
   String _userEmail = "";
   final int _takenCount = 0;
   final int _pendingCount = 0;
+  String _currentLanguage = 'en';
 
   // History Tab State
   StreamSubscription<List<Medicine>>? _medicinesSubscription;
@@ -149,22 +151,22 @@ class _PatientDashboardState extends State<PatientDashboard> {
           unselectedItemColor: theme.textTheme.bodyMedium!.color,
           showUnselectedLabels: true,
           elevation: 0,
-          items: const [
+          items: [
             BottomNavigationBarItem(
-              icon: Icon(Icons.home_filled),
-              label: "Home",
+              icon: const Icon(Icons.home_filled),
+              label: Translations.get('home', _currentLanguage),
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.medication),
-              label: "Medicines",
+              icon: const Icon(Icons.medication),
+              label: Translations.get('medicines', _currentLanguage),
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.history),
-              label: "History",
+              icon: const Icon(Icons.history),
+              label: Translations.get('history', _currentLanguage),
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.settings),
-              label: "Settings",
+              icon: const Icon(Icons.settings),
+              label: Translations.get('settings', _currentLanguage),
             ),
           ],
         ),
@@ -297,65 +299,90 @@ class _PatientDashboardState extends State<PatientDashboard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildSettingsSectionHeader("General"),
+                _buildSettingsSectionHeader(
+                  Translations.get('general', _currentLanguage),
+                ),
                 _buildSettingsTile(
                   Icons.person_outline,
-                  "Personal Data",
+                  Translations.get('personal_data', _currentLanguage),
                   _showProfileDetails,
                 ),
-                _buildSettingsTile(Icons.group_outlined, "My Caregivers", () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const MyCaregiversPage(),
-                    ),
-                  );
-                }),
+                _buildSettingsTile(
+                  Icons.group_outlined,
+                  Translations.get('my_caregivers', _currentLanguage),
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const MyCaregiversPage(),
+                      ),
+                    );
+                  },
+                ),
                 _buildSettingsTile(
                   Icons.people_outline,
-                  "Monitor Requests",
+                  Translations.get('monitor_requests', _currentLanguage),
                   () => _showMonitorRequests(),
                 ),
                 _buildSettingsTile(
                   Icons.notifications_none,
-                  "Notifications",
+                  Translations.get('notifications', _currentLanguage),
                   () {},
                 ),
+                _buildSettingsTile(
+                  Icons.language,
+                  Translations.get('language', _currentLanguage),
+                  _showLanguageDialog,
+                ),
                 const SizedBox(height: 24),
-                _buildSettingsSectionHeader("Support"),
-                _buildSettingsTile(Icons.bug_report, "Report an Issue", () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ReportBugPage(),
-                    ),
-                  );
-                }),
-                _buildSettingsTile(Icons.info_outline, "About Us", () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ContentDisplayPage(
-                        title: "About Us",
-                        contentKey: "aboutUs",
+                _buildSettingsSectionHeader(
+                  Translations.get('support', _currentLanguage),
+                ),
+                _buildSettingsTile(
+                  Icons.bug_report,
+                  Translations.get('report_issue', _currentLanguage),
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ReportBugPage(),
                       ),
-                    ),
-                  );
-                }),
-                _buildSettingsTile(Icons.help_outline, "Help & FAQ", () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ContentDisplayPage(
-                        title: "Help & FAQ",
-                        contentKey: "faq",
+                    );
+                  },
+                ),
+                _buildSettingsTile(
+                  Icons.info_outline,
+                  Translations.get('about_us', _currentLanguage),
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ContentDisplayPage(
+                          title: "About Us",
+                          contentKey: "aboutUs",
+                        ),
                       ),
-                    ),
-                  );
-                }),
+                    );
+                  },
+                ),
+                _buildSettingsTile(
+                  Icons.help_outline,
+                  Translations.get('help_faq', _currentLanguage),
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ContentDisplayPage(
+                          title: "Help & FAQ",
+                          contentKey: "faq",
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 _buildSettingsTile(
                   Icons.privacy_tip_outlined,
-                  "Privacy Policy",
+                  Translations.get('privacy_policy', _currentLanguage),
                   () {
                     Navigator.push(
                       context,
@@ -389,13 +416,13 @@ class _PatientDashboardState extends State<PatientDashboard> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: const Text("Log Out"),
+                    child: Text(Translations.get('log_out', _currentLanguage)),
                   ),
                 ),
                 const SizedBox(height: 20),
                 Center(
                   child: Text(
-                    "App Version 1.0.0",
+                    "${Translations.get('app_version', _currentLanguage)} 1.0.0",
                     style: TextStyle(
                       color: theme.textTheme.bodyMedium!.color,
                       fontSize: 12,
@@ -692,7 +719,10 @@ class _PatientDashboardState extends State<PatientDashboard> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                "Good Morning,",
+                                Translations.get(
+                                  'good_morning',
+                                  _currentLanguage,
+                                ),
                                 style: TextStyle(
                                   color: Colors.white.withValues(alpha: 0.8),
                                   fontSize: 14,
@@ -738,15 +768,17 @@ class _PatientDashboardState extends State<PatientDashboard> {
                     Row(
                       children: [
                         Expanded(
-                          child: _buildStatCard("Taken", _takenCount, const [
-                            Color(0xFF66BB6A),
-                            Color(0xFF43A047),
-                          ], Icons.check_circle_outline),
+                          child: _buildStatCard(
+                            Translations.get('taken', _currentLanguage),
+                            _takenCount,
+                            const [Color(0xFF66BB6A), Color(0xFF43A047)],
+                            Icons.check_circle_outline,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildStatCard(
-                            "Pending",
+                            Translations.get('pending', _currentLanguage),
                             _pendingCount,
                             const [Color(0xFFFFA726), Color(0xFFFB8C00)],
                             Icons.schedule,
@@ -757,7 +789,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                     const SizedBox(height: 24),
 
                     Text(
-                      "Today's Medicines",
+                      Translations.get('todays_medicines', _currentLanguage),
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -793,7 +825,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'My Medicines',
+                  Translations.get('my_medicines', _currentLanguage),
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
@@ -925,17 +957,17 @@ class _PatientDashboardState extends State<PatientDashboard> {
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.notifications_active,
                       color: Colors.white,
                       size: 16,
                     ),
-                    SizedBox(width: 6),
+                    const SizedBox(width: 6),
                     Text(
-                      "Next Dose",
-                      style: TextStyle(
+                      Translations.get('next_dose', _currentLanguage),
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                         fontSize: 12,
@@ -949,7 +981,9 @@ class _PatientDashboardState extends State<PatientDashboard> {
           ),
           const SizedBox(height: 20),
           Text(
-            nextDose != null ? nextDose.name : "All Clear!",
+            nextDose != null
+                ? nextDose.name
+                : Translations.get('all_clear', _currentLanguage),
             style: const TextStyle(
               color: Colors.white,
               fontSize: 26,
@@ -959,8 +993,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
           const SizedBox(height: 8),
           Text(
             nextDose != null
-                ? "Scheduled for ${DateFormat('h:mm a').format(nextDose.time)}"
-                : "You have taken all your meds.",
+                ? "${Translations.get('scheduled_for', _currentLanguage)} ${DateFormat('h:mm a').format(nextDose.time)}"
+                : Translations.get('taken_all_meds', _currentLanguage),
             style: const TextStyle(color: Colors.white70, fontSize: 16),
           ),
           const SizedBox(height: 20),
@@ -971,10 +1005,15 @@ class _PatientDashboardState extends State<PatientDashboard> {
               child: ElevatedButton(
                 onPressed: () async {
                   await _db.logDose(nextDose!.id, DateTime.now());
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Dose logged successfully!")),
-                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          Translations.get('dose_logged', _currentLanguage),
+                        ),
+                      ),
+                    );
+                  }
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
@@ -984,9 +1023,9 @@ class _PatientDashboardState extends State<PatientDashboard> {
                   ),
                   elevation: 0,
                 ),
-                child: const Text(
-                  "Mark as Taken",
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                child: Text(
+                  Translations.get('mark_as_taken', _currentLanguage),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -1008,7 +1047,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
           ),
           const SizedBox(height: 16),
           Text(
-            "No medicines added yet",
+            Translations.get('no_medicines', _currentLanguage),
             style: TextStyle(
               color: theme.textTheme.bodyMedium!.color,
               fontSize: 16,
@@ -1141,7 +1180,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Profile Details"),
+        title: Text(Translations.get('profile_details', _currentLanguage)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1149,7 +1188,12 @@ class _PatientDashboardState extends State<PatientDashboard> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(child: _buildDetailRow("Patient Name", _userName)),
+                Expanded(
+                  child: _buildDetailRow(
+                    Translations.get('patient_name', _currentLanguage),
+                    _userName,
+                  ),
+                ),
                 IconButton(
                   icon: const Icon(Icons.edit, color: Colors.blue),
                   onPressed: () {
@@ -1160,13 +1204,16 @@ class _PatientDashboardState extends State<PatientDashboard> {
               ],
             ),
             const SizedBox(height: 12),
-            _buildDetailRow("Email", _userEmail),
+            _buildDetailRow(
+              Translations.get('email', _currentLanguage),
+              _userEmail,
+            ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Close"),
+            child: Text(Translations.get('close', _currentLanguage)),
           ),
         ],
       ),
@@ -1180,22 +1227,24 @@ class _PatientDashboardState extends State<PatientDashboard> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Edit Name"),
+        title: Text(Translations.get('edit_name', _currentLanguage)),
         content: TextField(
           controller: nameController,
-          decoration: const InputDecoration(labelText: "Full Name"),
+          decoration: InputDecoration(
+            labelText: Translations.get('patient_name', _currentLanguage),
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
+            child: Text(Translations.get('cancel', _currentLanguage)),
           ),
           ElevatedButton(
             onPressed: () async {
               final newName = nameController.text.trim();
               if (newName.isNotEmpty) {
                 await _db.updateUserName(_currentUser.uid, newName);
-                if (mounted) {
+                if (context.mounted) {
                   setState(() => _userName = newName);
                   Navigator.pop(context); // Close dialog
                   // Re-open details to show updated info (optional, but nice)
@@ -1203,7 +1252,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 }
               }
             },
-            child: const Text("Save"),
+            child: Text(Translations.get('save', _currentLanguage)),
           ),
         ],
       ),
@@ -1253,7 +1302,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                "Monitor Requests",
+                Translations.get('monitor_requests', _currentLanguage),
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -1273,7 +1322,14 @@ class _PatientDashboardState extends State<PatientDashboard> {
                     }
                     final requests = snapshot.data ?? [];
                     if (requests.isEmpty) {
-                      return const Center(child: Text("No pending requests."));
+                      return Center(
+                        child: Text(
+                          Translations.get(
+                            'no_pending_requests',
+                            _currentLanguage,
+                          ),
+                        ),
+                      );
                     }
                     return ListView.builder(
                       itemCount: requests.length,
@@ -1309,11 +1365,16 @@ class _PatientDashboardState extends State<PatientDashboard> {
                                       req['monitorId'],
                                       _currentUser.uid,
                                     );
-                                    if (mounted) {
+                                    if (context.mounted) {
                                       navigator.pop();
                                       messenger.showSnackBar(
-                                        const SnackBar(
-                                          content: Text("Request Accepted"),
+                                        SnackBar(
+                                          content: Text(
+                                            Translations.get(
+                                              'request_accepted',
+                                              _currentLanguage,
+                                            ),
+                                          ),
                                         ),
                                       );
                                     }
@@ -1330,11 +1391,16 @@ class _PatientDashboardState extends State<PatientDashboard> {
                                     );
                                     final navigator = Navigator.of(context);
                                     await _db.declineRequest(req['id']);
-                                    if (mounted) {
+                                    if (context.mounted) {
                                       navigator.pop();
                                       messenger.showSnackBar(
-                                        const SnackBar(
-                                          content: Text("Request Declined"),
+                                        SnackBar(
+                                          content: Text(
+                                            Translations.get(
+                                              'request_declined',
+                                              _currentLanguage,
+                                            ),
+                                          ),
                                         ),
                                       );
                                     }
@@ -1353,6 +1419,40 @@ class _PatientDashboardState extends State<PatientDashboard> {
           ),
         );
       },
+    );
+  }
+
+  void _showLanguageDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(Translations.get('select_language', _currentLanguage)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(Translations.get('english', _currentLanguage)),
+              onTap: () {
+                setState(() => _currentLanguage = 'en');
+                Navigator.pop(context);
+              },
+              trailing: _currentLanguage == 'en'
+                  ? const Icon(Icons.check, color: Colors.blue)
+                  : null,
+            ),
+            ListTile(
+              title: Text(Translations.get('bangla', _currentLanguage)),
+              onTap: () {
+                setState(() => _currentLanguage = 'bn');
+                Navigator.pop(context);
+              },
+              trailing: _currentLanguage == 'bn'
+                  ? const Icon(Icons.check, color: Colors.blue)
+                  : null,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

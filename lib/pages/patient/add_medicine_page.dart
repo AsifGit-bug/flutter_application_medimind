@@ -330,7 +330,7 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
           ),
         ),
         DropdownButtonFormField<String>(
-          value: value,
+          initialValue: value,
           items: items
               .map((e) => DropdownMenuItem(value: e, child: Text(e)))
               .toList(),
