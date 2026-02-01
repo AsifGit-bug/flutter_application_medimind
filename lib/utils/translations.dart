@@ -43,6 +43,28 @@ class Translations {
       'medicines': 'Medicines',
       'history': 'History',
       'no_pending_requests': 'No pending requests.',
+      // Medicine Types
+      'Pill': 'Pill',
+      'Syrup': 'Syrup',
+      'Injection': 'Injection',
+      'Drops': 'Drops',
+      'Inhaler': 'Inhaler',
+      'Powder': 'Powder',
+      'Other': 'Other',
+      // Frequencies
+      'Daily': 'Daily',
+      'Twice a day': 'Twice a day',
+      'Thrice a day': 'Thrice a day',
+      'Weekly': 'Weekly',
+      'As needed': 'As needed',
+      // Meal Instructions
+      'Before Meal': 'Before Meal',
+      'After Meal': 'After Meal',
+      'Empty Stomach': 'Empty Stomach',
+      'Not Important': 'Not Important',
+      'None': 'None',
+      // Status
+      'Missed': 'Missed',
     },
     'bn': {
       'good_morning': 'শুভ সকাল,',
@@ -87,6 +109,28 @@ class Translations {
       'help_faq': 'সহায়তা ও সাধারণ জিজ্ঞাসা',
       'privacy_policy': 'গোপনীয়তা নীতি',
       'no_pending_requests': 'কোনো অনুরোধ নেই।',
+      // Medicine Types
+      'Pill': 'বড়ি',
+      'Syrup': 'সিরাপ',
+      'Injection': 'ইনজেকশন',
+      'Drops': 'ড্রপস',
+      'Inhaler': 'ইনহেলার',
+      'Powder': 'পাউডার',
+      'Other': 'অন্যান্য',
+      // Frequencies
+      'Daily': 'দৈনিক',
+      'Twice a day': 'দিনে দুবার',
+      'Thrice a day': 'দিনে তিনবার',
+      'Weekly': 'সাপ্তাহিক',
+      'As needed': 'প্রয়োজন অনুযায়ী',
+      // Meal Instructions
+      'Before Meal': 'খাবার আগে',
+      'After Meal': 'খাবার পরে',
+      'Empty Stomach': 'খালি পেটে',
+      'Not Important': 'গুরুত্বপূর্ণ নয়',
+      'None': 'কিছু না',
+      // Status
+      'Missed': 'মিস হয়েছে',
     },
   };
 

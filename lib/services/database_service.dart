@@ -116,6 +116,24 @@ class DatabaseService {
 
   // --- Medicine Operations ---
 
+  // Check if Medicine Exists (Duplicate Prevention)
+  Future<bool> checkMedicineExists(
+    String userId,
+    String name,
+    String type,
+    String dosage,
+  ) async {
+    final query = await _firestore
+        .collection('medicines')
+        .where('userId', isEqualTo: userId)
+        .where('name', isEqualTo: name.trim())
+        .where('type', isEqualTo: type)
+        .where('dosage', isEqualTo: dosage.trim())
+        .get();
+
+    return query.docs.isNotEmpty;
+  }
+
   // Add Medicine
   Future<void> addMedicine(Medicine medicine, String userId) async {
     await _firestore.collection('medicines').add({
@@ -130,9 +148,12 @@ class DatabaseService {
           .toList(),
       'instructions': medicine.instructions,
       'mealInstruction': medicine.mealInstruction,
+      'weeklyDays': medicine.weeklyDays,
       'doseHistory': medicine.doseHistory
           .map((e) => Timestamp.fromDate(e))
           .toList(),
+      'skipHistory': [],
+      'missedHistory': [],
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -168,11 +189,29 @@ class DatabaseService {
               type: data['type'] ?? 'Pill',
               instructions: data['instructions'] ?? '',
               mealInstruction: data['mealInstruction'] ?? 'None',
+              weeklyDays:
+                  (data['weeklyDays'] as List<dynamic>?)
+                      ?.map((e) => e.toString())
+                      .toList() ??
+                  [],
               doseHistory:
                   (data['doseHistory'] as List<dynamic>?)
                       ?.map((e) => (e as Timestamp).toDate())
                       .toList() ??
                   [],
+              skipHistory:
+                  (data['skipHistory'] as List<dynamic>?)
+                      ?.map((e) => (e as Timestamp).toDate())
+                      .toList() ??
+                  [],
+              missedHistory:
+                  (data['missedHistory'] as List<dynamic>?)
+                      ?.map((e) => (e as Timestamp).toDate())
+                      .toList() ??
+                  [],
+              createdAt: data['createdAt'] != null
+                  ? (data['createdAt'] as Timestamp).toDate()
+                  : null,
             );
           }).toList();
         });
@@ -211,6 +250,20 @@ class DatabaseService {
   Future<void> logDose(String medicineId, DateTime time) async {
     await _firestore.collection('medicines').doc(medicineId).update({
       'doseHistory': FieldValue.arrayUnion([Timestamp.fromDate(time)]),
+    });
+  }
+
+  // Skip Dose
+  Future<void> skipDose(String medicineId, DateTime time) async {
+    await _firestore.collection('medicines').doc(medicineId).update({
+      'skipHistory': FieldValue.arrayUnion([Timestamp.fromDate(time)]),
+    });
+  }
+
+  // Mark as Missed (Explicitly)
+  Future<void> markAsMissed(String medicineId, DateTime time) async {
+    await _firestore.collection('medicines').doc(medicineId).update({
+      'missedHistory': FieldValue.arrayUnion([Timestamp.fromDate(time)]),
     });
   }
 

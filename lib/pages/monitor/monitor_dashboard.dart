@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 import '../auth/login_page.dart';
 import '../../services/database_service.dart';
 import '../../services/auth_service.dart';
@@ -383,107 +384,425 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         }
         final medicines = snapshot.data!;
 
-        // Filter for "Today" (MVP: Show all active daily meds)
-        final todayMeds = medicines.toList();
-        todayMeds.sort((a, b) => a.time.compareTo(b.time));
+        // 1. Generate all daily events
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        List<Map<String, dynamic>> dailyEvents = [];
 
-        if (todayMeds.isEmpty) {
-          return const Center(child: Text("No medicines scheduled for today."));
-        }
+        for (var med in medicines) {
+          // Flatten schedule times
+          // If scheduleTimes is empty, fall back to 'time' (backward compat)
+          List<DateTime> schedules = med.scheduleTimes.isNotEmpty
+              ? med.scheduleTimes
+              : [med.time];
 
-        return ListView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: todayMeds.length,
-          itemBuilder: (context, index) {
-            final med = todayMeds[index];
-            final now = DateTime.now();
-            final today = DateTime(now.year, now.month, now.day);
-
-            // Check if taken today
-            bool isTaken = med.doseHistory.any(
-              (d) =>
-                  d.year == today.year &&
-                  d.month == today.month &&
-                  d.day == today.day,
-            );
-
-            // Med sched time for today
-            final medTime = DateTime(
+          // For each scheduled time, determine status
+          for (var sched in schedules) {
+            // Construct today's scheduled instance
+            final scheduledDateTime = DateTime(
               today.year,
               today.month,
               today.day,
-              med.time.hour,
-              med.time.minute,
+              sched.hour,
+              sched.minute,
             );
 
-            String status;
-            Color statusColor;
-            IconData statusIcon;
+            // Check if TAKEN near this time (simplistic check: same day)
+            // In a real app, we might match specific slots.
+            // Here we just look for ANY dose taken today that hasn't been matched yet?
+            // Simpler approach for MVP:
+            // List all doses taken today. List all scheduled.
+            // But we need to link them.
 
-            if (isTaken) {
+            // Revised Approach:
+            // 1. Find all doses taken today for this med.
+            // 2. Map them to the closest scheduled time?
+            //    Or just list them as "Taken".
+
+            // Let's stick to the list of items the patient sees.
+
+            // Find specific dose taken corresponding to this schedule?
+            // Since we don't have slot IDs, we just look for *any* dose taken today.
+            // If med is "Twice a day", and valid doses count is 1, then 1 is taken, 1 pending.
+
+            // Count doses taken today
+            final dosesToday = med.doseHistory
+                .where(
+                  (d) =>
+                      d.year == today.year &&
+                      d.month == today.month &&
+                      d.day == today.day,
+                )
+                .toList();
+            dosesToday.sort(); // Earliest first
+
+            // Count skipped doses today
+            final skippedToday = med.skipHistory
+                .where(
+                  (d) =>
+                      d.year == today.year &&
+                      d.month == today.month &&
+                      d.day == today.day,
+                )
+                .toList();
+            skippedToday.sort();
+
+            // Count explicitly missed doses today
+            final missedToday = med.missedHistory
+                .where(
+                  (d) =>
+                      d.year == today.year &&
+                      d.month == today.month &&
+                      d.day == today.day,
+                )
+                .toList();
+            missedToday.sort();
+
+            // Sequential Slot Mapping Logic
+            // Slot 1 maps to Taken[0], then Skipped[0], then Missed[0]
+
+            int schedIndex = schedules.indexOf(sched);
+
+            DateTime? actualTakenTime;
+            DateTime? actualSkippedTime;
+            DateTime? actualMissedTime;
+            String status;
+
+            if (schedIndex < dosesToday.length) {
               status = "Taken";
-              statusColor = Colors.green;
-              statusIcon = Icons.check_circle;
-            } else if (now.isAfter(medTime)) {
+              actualTakenTime = dosesToday[schedIndex];
+            } else if ((schedIndex - dosesToday.length) < skippedToday.length) {
+              status = "Skipped";
+              actualSkippedTime = skippedToday[schedIndex - dosesToday.length];
+            } else if ((schedIndex - dosesToday.length - skippedToday.length) <
+                missedToday.length) {
               status = "Missed";
-              statusColor = Colors.red;
-              statusIcon = Icons.error_outline;
+              actualMissedTime =
+                  missedToday[schedIndex -
+                      dosesToday.length -
+                      skippedToday.length];
             } else {
-              status = "Upcoming";
-              statusColor = Colors.orange;
-              statusIcon = Icons.access_time;
+              if (now.isAfter(scheduledDateTime)) {
+                status = "Missed";
+              } else {
+                status = "Upcoming";
+              }
             }
 
-            return Card(
-              elevation: 0,
-              color: Theme.of(context).cardColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: statusColor.withValues(alpha: 0.3)),
-              ),
-              margin: const EdgeInsets.only(bottom: 12),
-              child: ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(statusIcon, color: statusColor, size: 24),
-                ),
-                title: Text(
-                  med.name,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: Text("${med.dosage} • ${med.frequency}"),
-                trailing: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      status,
-                      style: TextStyle(
-                        color: statusColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                    Text(
-                      "${med.time.hour > 12 ? med.time.hour - 12 : med.time.hour}:${med.time.minute.toString().padLeft(2, '0')} ${med.time.hour >= 12 ? 'PM' : 'AM'}",
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).textTheme.bodySmall?.color,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+            dailyEvents.add({
+              'medicine': med,
+              'scheduledTime': scheduledDateTime,
+              'actualTime':
+                  actualTakenTime ?? actualSkippedTime ?? actualMissedTime,
+              'status': status,
+            });
+          }
+        }
+
+        // Sort by time
+        dailyEvents.sort((a, b) {
+          DateTime timeA = a['actualTime'] ?? a['scheduledTime'];
+          DateTime timeB = b['actualTime'] ?? b['scheduledTime'];
+          return timeA.compareTo(timeB);
+        });
+
+        final theme = Theme.of(context);
+
+        // Group by status
+        final untracked = dailyEvents
+            .where(
+              (e) => e['status'] == 'Upcoming' || e['status'] == 'Untracked',
+            )
+            .toList(); // Monitor calls it "Upcoming" sometimes?
+        // Wait, previous code used "Upcoming" for future.
+        // Let's check logic:
+        // } else {
+        //   if (now.isAfter(scheduledDateTime)) {
+        //     status = "Missed";
+        //   } else {
+        //     status = "Upcoming";
+        //   }
+        // }
+        // So we have "Upcoming". Let's map "Upcoming" to "Untracked" section.
+
+        final taken = dailyEvents.where((e) => e['status'] == 'Taken').toList();
+        final skipped = dailyEvents
+            .where((e) => e['status'] == 'Skipped')
+            .toList();
+        final missed = dailyEvents
+            .where((e) => e['status'] == 'Missed')
+            .toList();
+
+        return Column(
+          children: [
+            if (untracked.isNotEmpty)
+              _buildSection(
+                context,
+                "Upcoming",
+                untracked,
+                theme.primaryColor,
+                Icons.radio_button_unchecked,
+                isExpanded: true,
+              )
+            else
+              _buildAllCaughtUpCard(),
+            _buildSection(
+              context,
+              "Taken",
+              taken,
+              Colors.green,
+              Icons.check_circle,
+            ),
+            _buildSection(
+              context,
+              "Skipped",
+              skipped,
+              Colors.amber,
+              Icons.remove_circle_outline,
+            ),
+            _buildSection(
+              context,
+              "Missed",
+              missed,
+              Colors.red,
+              Icons.error_outline,
+            ),
+          ],
         );
       },
     );
+  }
+
+  Widget _buildAllCaughtUpCard() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 24, top: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withValues(alpha: 0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.blue.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.task_alt_rounded,
+              size: 48,
+              color: Colors.blue,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            "No medicines left for today!",
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.blue,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSection(
+    BuildContext context,
+    String title,
+    List<Map<String, dynamic>> events,
+    Color color,
+    IconData icon, {
+    bool isExpanded = false,
+  }) {
+    if (events.isEmpty) return const SizedBox.shrink();
+
+    final count = events.length;
+    final headerTitle = "$title ($count)";
+
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        initiallyExpanded: isExpanded,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        iconColor: color,
+        collapsedIconColor: color.withOpacity(0.7),
+        title: Row(
+          children: [
+            Icon(icon, size: 24, color: color),
+            const SizedBox(width: 12),
+            Text(
+              headerTitle.toUpperCase(),
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+                letterSpacing: 1.0,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Container(height: 1, color: color.withOpacity(0.1)),
+            ),
+          ],
+        ),
+        children: events
+            .map((event) => _buildMonitorEventCard(context, event))
+            .toList(),
+      ),
+    );
+  }
+
+  // Removed old _buildSectionHeader
+
+  Widget _buildMonitorEventCard(
+    BuildContext context,
+    Map<String, dynamic> event,
+  ) {
+    final Medicine med = event['medicine'];
+    final String status = event['status']; // Taken, Skipped, Missed, Upcoming
+    // Note: Upcoming is mapped to Untracked section but status string might still be "Upcoming"
+
+    final DateTime displayTime = event['actualTime'] ?? event['scheduledTime'];
+    final theme = Theme.of(context);
+
+    // ... inside _buildMonitorEventCard
+
+    // Unused variables removed: statusIcon, timeLabel
+    // logic simplified to only what is needed
+
+    Color statusColor;
+    // IconData statusIcon; // Removed
+    // String timeLabel; // Removed
+
+    if (status == "Taken") {
+      statusColor = Colors.green;
+      // statusIcon = Icons.check_circle;
+      // timeLabel = "Taken at ...";
+    } else if (status == "Skipped") {
+      statusColor = Colors.amber;
+      // statusIcon = Icons.remove_circle_outline;
+      // timeLabel = "Skipped at ...";
+    } else if (status == "Missed") {
+      statusColor = Colors.red;
+      // statusIcon = Icons.error_outline;
+      // timeLabel = "Missed ...";
+    } else {
+      statusColor = Colors.grey;
+      // statusIcon = Icons.radio_button_unchecked;
+      // timeLabel = "Scheduled ...";
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12, left: 4, right: 4),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: theme.shadowColor.withValues(alpha: 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Row(
+          children: [
+            // Icon Container
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: statusColor.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                _getMedicineIcon(med.type),
+                color: statusColor,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 16),
+
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    med.name,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: theme.textTheme.bodyLarge?.color,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "${med.dosage} • ${DateFormat('h:mm a').format(displayTime)}",
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: theme.textTheme.bodyMedium?.color?.withValues(
+                        alpha: 0.7,
+                      ),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  status == "Upcoming" ? "Untracked" : status,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _getMedicineIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'pill':
+      case 'tablet':
+      case 'capsule':
+        return Icons.medication;
+      case 'syrup':
+      case 'liquid':
+        return Icons.local_drink;
+      case 'injection':
+      case 'syringe':
+        return Icons.vaccines;
+      case 'inhaler':
+        return Icons.air;
+      case 'drops':
+        return Icons.water_drop;
+      case 'cream':
+      case 'ointment':
+        return Icons.healing;
+      default:
+        return Icons.medication_liquid;
+    }
   }
 
   void _showEditNicknameSheet(String patientId, String currentNickname) {
