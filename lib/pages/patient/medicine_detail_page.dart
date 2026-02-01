@@ -138,6 +138,22 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
                     widget.medicine.frequency,
                     style: TextStyle(color: Colors.grey[600], fontSize: 16),
                   ),
+                  // Show weekly days if it's a weekly medicine
+                  if (widget.medicine.frequency == 'Weekly' &&
+                      widget.medicine.weeklyDays.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        widget.medicine.weeklyDays
+                            .map((day) => day.substring(0, 3))
+                            .join(', '),
+                        style: TextStyle(
+                          color: primaryBlue,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 24),
                   Divider(color: Colors.grey[200]),
                   const SizedBox(height: 24),

@@ -3,10 +3,18 @@ import 'package:flutter/material.dart';
 import '../../models/medicine_model.dart';
 import '../../services/database_service.dart';
 
+import '../../utils/translations.dart';
+
 class AddMedicinePage extends StatefulWidget {
   final Medicine? medicine;
   final String userId; // New required field
-  const AddMedicinePage({super.key, this.medicine, required this.userId});
+  final String currentLanguage;
+  const AddMedicinePage({
+    super.key,
+    this.medicine,
+    required this.userId,
+    this.currentLanguage = 'en',
+  });
 
   @override
   State<AddMedicinePage> createState() => _AddMedicinePageState();
@@ -24,6 +32,7 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
   String _type = 'Pill';
   String _mealInstruction = 'None';
   List<TimeOfDay> _selectedTimes = [TimeOfDay.now()]; // Support multiple times
+  List<String> _selectedWeeklyDays = []; // For Weekly frequency
 
   // Options
   final List<String> _frequencies = [
@@ -49,6 +58,15 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
     'Not Important',
     'None', // Default
   ];
+  final List<String> _weekDays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
 
   // Colors
   final Color primaryBlue = const Color(0xFF1565C0);
@@ -62,6 +80,7 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
       _frequency = widget.medicine!.frequency;
       _type = widget.medicine!.type;
       _mealInstruction = widget.medicine!.mealInstruction;
+      _selectedWeeklyDays = List.from(widget.medicine!.weeklyDays);
 
       // Load times
       if (widget.medicine!.scheduleTimes.isNotEmpty) {
@@ -129,10 +148,35 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
         instructions:
             _mealInstruction, // Using meal instruction as main instruction for now or we can concat
         mealInstruction: _mealInstruction,
+        weeklyDays: _selectedWeeklyDays, // ADD THIS!
       );
 
       try {
         final db = DatabaseService();
+
+        // 1. Check for duplicates (only for new medicines)
+        if (!isEditing) {
+          final exists = await db.checkMedicineExists(
+            widget.userId,
+            medicine.name,
+            medicine.type,
+            medicine.dosage,
+          );
+
+          if (exists) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("This medicine already exists!"),
+                  backgroundColor: Colors.red,
+                ),
+              );
+              setState(() => _isSaving = false);
+            }
+            return;
+          }
+        }
+
         await db.addMedicine(medicine, widget.userId);
         if (mounted) Navigator.pop(context);
       } catch (e) {
@@ -211,6 +255,60 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
                 },
               ),
               const SizedBox(height: 16),
+
+              // Weekly Day Selector (show only if Weekly is selected)
+              if (_frequency == 'Weekly') ...[
+                const SizedBox(height: 8),
+                Text(
+                  "Select Days",
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _weekDays.map((day) {
+                    final isSelected = _selectedWeeklyDays.contains(day);
+                    final currentTheme = Theme.of(context);
+                    return FilterChip(
+                      label: Text(day.substring(0, 3)), // Mon, Tue, etc.
+                      selected: isSelected,
+                      onSelected: (selected) {
+                        setState(() {
+                          if (selected) {
+                            _selectedWeeklyDays.add(day);
+                          } else {
+                            _selectedWeeklyDays.remove(day);
+                          }
+                        });
+                      },
+                      backgroundColor:
+                          currentTheme.brightness == Brightness.dark
+                          ? Colors.grey.withValues(alpha: 0.1)
+                          : const Color(0xFFF5F9FC),
+                      selectedColor: primaryBlue.withValues(alpha: 0.2),
+                      labelStyle: TextStyle(
+                        color: isSelected
+                            ? primaryBlue
+                            : currentTheme.textTheme.bodyMedium?.color,
+                        fontWeight: isSelected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                      side: BorderSide(
+                        color: isSelected
+                            ? primaryBlue
+                            : currentTheme.dividerColor,
+                      ),
+                      showCheckmark: false,
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // Time Pickers (Dynamic List)
               ...List.generate(_selectedTimes.length, (index) {
@@ -332,7 +430,12 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
         DropdownButtonFormField<String>(
           initialValue: value,
           items: items
-              .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+              .map(
+                (e) => DropdownMenuItem(
+                  value: e,
+                  child: Text(Translations.get(e, widget.currentLanguage)),
+                ),
+              )
               .toList(),
           onChanged: onChanged,
           decoration: _inputDecoration("", icon),
