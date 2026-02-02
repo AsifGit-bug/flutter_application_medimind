@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/medicine_model.dart';
+import '../models/notification_model.dart';
 
 class DatabaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -155,6 +156,28 @@ class DatabaseService {
       'skipHistory': [],
       'missedHistory': [],
       'createdAt': FieldValue.serverTimestamp(),
+      'isDeleted': false,
+    });
+  }
+
+  // Update Medicine
+  Future<void> updateMedicine(Medicine medicine, String userId) async {
+    await _firestore.collection('medicines').doc(medicine.id).update({
+      'name': medicine.name,
+      'dosage': medicine.dosage,
+      'type': medicine.type,
+      'frequency': medicine.frequency,
+      'time': Timestamp.fromDate(medicine.time),
+      'scheduleTimes': medicine.scheduleTimes
+          .map((e) => Timestamp.fromDate(e))
+          .toList(),
+      'instructions': medicine.instructions,
+      'mealInstruction': medicine.mealInstruction,
+      'weeklyDays': medicine.weeklyDays,
+      'isDeleted': medicine.isDeleted,
+      'doseHistory': medicine.doseHistory
+          .map((e) => Timestamp.fromDate(e))
+          .toList(),
     });
   }
 
@@ -212,6 +235,7 @@ class DatabaseService {
               createdAt: data['createdAt'] != null
                   ? (data['createdAt'] as Timestamp).toDate()
                   : null,
+              isDeleted: data['isDeleted'] ?? false,
             );
           }).toList();
         });
@@ -241,8 +265,15 @@ class DatabaseService {
     });
   }
 
-  // Delete Medicine
+  // Delete Medicine (Soft Delete/Archive)
   Future<void> deleteMedicine(String medicineId) async {
+    await _firestore.collection('medicines').doc(medicineId).update({
+      'isDeleted': true,
+    });
+  }
+
+  // Permanent Delete
+  Future<void> hardDeleteMedicine(String medicineId) async {
     await _firestore.collection('medicines').doc(medicineId).delete();
   }
 
@@ -297,8 +328,23 @@ class DatabaseService {
           .collection('users')
           .doc(monitorId)
           .get();
-      List<dynamic> linked =
-          (monitorDoc.data() as Map<String, dynamic>)['linkedPatients'] ?? [];
+
+      if (!monitorDoc.exists || monitorDoc.data() == null) {
+        // If monitor doc doesn't exist, we can assume no linked patients yet,
+        // or we might need to create it. For now, just proceed as if not linked.
+        // But waiting... if it doesn't exist, maybe we should error or handle gracefully?
+        // In ensureAdminUser etc we create it.
+        // Let's safe cast.
+      }
+
+      Map<String, dynamic>? monitorData =
+          monitorDoc.data() as Map<String, dynamic>?;
+      List<dynamic> linked = monitorData?['linkedPatients'] ?? [];
+
+      if (linked.length >= 5) {
+        return "You have reached the maximum limit of 5 patients.";
+      }
+
       if (linked.contains(patientId)) {
         return "Patient is already linked.";
       }
@@ -323,6 +369,15 @@ class DatabaseService {
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
       });
+
+      // Notify Patient
+      await createNotification(
+        userId: patientId,
+        title: "New Monitor Request",
+        body: "A caregiver wants to link with you.",
+        type: NotificationType.request,
+        targetId: monitorId, // Could be request ID if needed
+      );
 
       return "Request sent successfully";
     } catch (e) {
@@ -358,29 +413,62 @@ class DatabaseService {
   }
 
   // 3. Accept Request
-  Future<void> acceptRequest(
+  Future<String> acceptRequest(
     String requestId,
     String monitorId,
     String patientId,
   ) async {
-    // Perform the link
-    await _firestore.collection('users').doc(monitorId).update({
-      'linkedPatients': FieldValue.arrayUnion([patientId]),
-    });
-    await _firestore.collection('users').doc(patientId).update({
-      'caregivers': FieldValue.arrayUnion([monitorId]),
-    });
-    // Update request status
-    await _firestore.collection('requests').doc(requestId).update({
-      'status': 'accepted',
-    });
-  }
+    try {
+      // Check limits before accepting
+      DocumentSnapshot patientDoc = await _firestore
+          .collection('users')
+          .doc(patientId)
+          .get();
+      Map<String, dynamic>? patientData =
+          patientDoc.data() as Map<String, dynamic>?;
+      List<dynamic> currentCaregivers = patientData?['caregivers'] ?? [];
 
-  // 4. Decline Request
-  Future<void> declineRequest(String requestId) async {
-    await _firestore.collection('requests').doc(requestId).update({
-      'status': 'declined',
-    });
+      if (currentCaregivers.length >= 5) {
+        return "You already have the maximum number of caregivers (5).";
+      }
+
+      DocumentSnapshot monitorDoc = await _firestore
+          .collection('users')
+          .doc(monitorId)
+          .get();
+      Map<String, dynamic>? monitorData =
+          monitorDoc.data() as Map<String, dynamic>?;
+      List<dynamic> currentPatients = monitorData?['linkedPatients'] ?? [];
+
+      if (currentPatients.length >= 5) {
+        return "This monitor has reached their patient limit.";
+      }
+
+      // Perform the link
+      await _firestore.collection('users').doc(monitorId).update({
+        'linkedPatients': FieldValue.arrayUnion([patientId]),
+      });
+      await _firestore.collection('users').doc(patientId).update({
+        'caregivers': FieldValue.arrayUnion([monitorId]),
+      });
+      // Update request status
+      await _firestore.collection('requests').doc(requestId).update({
+        'status': 'accepted',
+      });
+
+      // Notify Monitor
+      await createNotification(
+        userId: monitorId,
+        title: "Request Accepted",
+        body: "Patient has accepted your link request.",
+        type: NotificationType.success,
+        targetId: patientId,
+      );
+
+      return "Request accepted successfully";
+    } catch (e) {
+      return "Error: $e";
+    }
   }
 
   // 5. Unlink Patient
@@ -442,6 +530,8 @@ class DatabaseService {
 
       // Fetch details for each patient
       List<Map<String, dynamic>> patients = [];
+      final List<dynamic> mutedPatients = data['mutedPatients'] ?? [];
+
       for (String pid in linkedIds) {
         DocumentSnapshot pDoc = await _firestore
             .collection('users')
@@ -451,6 +541,7 @@ class DatabaseService {
           Map<String, dynamic> pData = pDoc.data() as Map<String, dynamic>;
           pData['id'] = pid; // Ensure ID is attached
           pData['nickname'] = nicknames[pid]; // Attach nickname if exists
+          pData['isMuted'] = mutedPatients.contains(pid); // Attach mute status
 
           // Calculate stats (Mock logic or real aggregation)
           QuerySnapshot meds = await _firestore
@@ -463,6 +554,56 @@ class DatabaseService {
       }
       return patients;
     });
+  }
+
+  // 4. Decline Request
+  Future<void> declineRequest(String requestId) async {
+    final doc = await _firestore.collection('requests').doc(requestId).get();
+    if (!doc.exists) return;
+
+    final data = doc.data() as Map<String, dynamic>;
+    final monitorId = data['monitorId'];
+    // final patientId = data['patientId']; // Unused
+    // final status = data['status']; // 'pending'
+
+    await _firestore.collection('requests').doc(requestId).update({
+      'status': 'declined',
+    });
+
+    // Notify Monitor that Patient declined (or vice versa - usually patient declines a request)
+    // Assuming the current user performing this action is the one DECLINING.
+    // If I am the patient, I decline the monitor's request.
+    // If I am the monitor, I might cancel/decline? Usually 'decline' is recipient action.
+    // Let's notify the sender (Monitor).
+    await createNotification(
+      userId: monitorId,
+      title: "Request Declined",
+      body: "Patient has declined your connection request.",
+      type: NotificationType.warning,
+      targetId: requestId,
+    );
+  }
+
+  // --- Mute/Unmute Patients (Monitor Side) ---
+
+  Future<void> mutePatient(String monitorId, String patientId) async {
+    await _firestore.collection('users').doc(monitorId).update({
+      'mutedPatients': FieldValue.arrayUnion([patientId]),
+    });
+  }
+
+  Future<void> unmutePatient(String monitorId, String patientId) async {
+    await _firestore.collection('users').doc(monitorId).update({
+      'mutedPatients': FieldValue.arrayRemove([patientId]),
+    });
+  }
+
+  // Helper to check mute status (mostly for UI, usually done via snapshot)
+  Future<bool> isPatientMuted(String monitorId, String patientId) async {
+    final doc = await _firestore.collection('users').doc(monitorId).get();
+    if (!doc.exists) return false;
+    final List<dynamic> muted = doc.data()?['mutedPatients'] ?? [];
+    return muted.contains(patientId);
   }
 
   // --- Bug Reporting System ---
@@ -536,5 +677,74 @@ class DatabaseService {
         .collection('app_metadata')
         .doc('content')
         .set(content, SetOptions(merge: true));
+  }
+  // --- In-App Notifications ---
+
+  // Create Notification
+  Future<void> createNotification({
+    required String userId,
+    required String title,
+    required String body,
+    required NotificationType type,
+    required String targetId,
+    String? deepLink,
+  }) async {
+    await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('notifications')
+        .add({
+          'title': title,
+          'body': body,
+          'type': type.toString().split('.').last,
+          'targetId': targetId,
+          'isRead': false,
+          'createdAt': FieldValue.serverTimestamp(),
+          'deepLink': deepLink,
+        });
+  }
+
+  // Get Notifications Stream
+  Stream<List<NotificationModel>> getNotifications(String userId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('notifications')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map((doc) {
+            return NotificationModel.fromMap(doc.id, doc.data());
+          }).toList();
+        });
+  }
+
+  // Mark As Read
+  Future<void> markNotificationAsRead(
+    String userId,
+    String notificationId,
+  ) async {
+    await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('notifications')
+        .doc(notificationId)
+        .update({'isRead': true});
+  }
+
+  // Mark All As Read
+  Future<void> markAllNotificationsAsRead(String userId) async {
+    final batch = _firestore.batch();
+    final query = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('notifications')
+        .where('isRead', isEqualTo: false)
+        .get();
+
+    for (var doc in query.docs) {
+      batch.update(doc.reference, {'isRead': true});
+    }
+    await batch.commit();
   }
 }

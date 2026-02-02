@@ -21,6 +21,27 @@ class MyCaregiversPage extends StatelessWidget {
         backgroundColor: theme.cardColor,
         elevation: 0,
         iconTheme: theme.iconTheme,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(30),
+          child: StreamBuilder<List<Map<String, dynamic>>>(
+            stream: DatabaseService().getLinkedCaregivers(user.uid),
+            builder: (context, snapshot) {
+              final count = snapshot.data?.length ?? 0;
+              final left = 5 - count;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: Text(
+                  "$count/5 Caregivers Linked • $left left",
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: left > 0 ? theme.primaryColor : Colors.red,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
       ),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: DatabaseService().getLinkedCaregivers(user.uid),
@@ -129,16 +150,69 @@ class MyCaregiversPage extends StatelessWidget {
                       Icons.remove_circle_outline,
                       color: Colors.red,
                     ),
-                    onPressed: () {
-                      // Optional: Remove functionality
-                      // DatabaseService().removeMonitor(user.uid, caregiver['uid']);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            "To remove, ask admin or contact support",
+                    onPressed: () async {
+                      final TextEditingController confirmController =
+                          TextEditingController();
+                      final userId = FirebaseAuth.instance.currentUser?.uid;
+                      if (userId == null) return;
+
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text("Remove Caregiver"),
+                          content: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                "Are you sure you want to remove ${caregiver['name']}? They will no longer be able to monitor your medicines.\n\nTo confirm, please type \"unlink\" below.",
+                              ),
+                              const SizedBox(height: 16),
+                              TextField(
+                                controller: confirmController,
+                                decoration: const InputDecoration(
+                                  hintText: "Type 'unlink'",
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                            ],
                           ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: const Text("Cancel"),
+                            ),
+                            ValueListenableBuilder<TextEditingValue>(
+                              valueListenable: confirmController,
+                              builder: (context, value, child) {
+                                return TextButton(
+                                  onPressed:
+                                      value.text.toLowerCase() == 'unlink'
+                                      ? () => Navigator.pop(context, true)
+                                      : null,
+                                  child: const Text(
+                                    "Remove",
+                                    style: TextStyle(color: Colors.red),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
                         ),
                       );
+
+                      if (confirm == true) {
+                        await DatabaseService().unlinkPatient(
+                          caregiver['uid'],
+                          userId,
+                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("Caregiver removed successfully"),
+                            ),
+                          );
+                        }
+                      }
                     },
                   ),
                 ),

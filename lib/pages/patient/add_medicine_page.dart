@@ -4,6 +4,7 @@ import '../../models/medicine_model.dart';
 import '../../services/database_service.dart';
 
 import '../../utils/translations.dart';
+import '../../services/notification_service.dart';
 
 class AddMedicinePage extends StatefulWidget {
   final Medicine? medicine;
@@ -177,8 +178,16 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
           }
         }
 
-        await db.addMedicine(medicine, widget.userId);
-        if (mounted) Navigator.pop(context);
+        if (isEditing) {
+          await db.updateMedicine(medicine, widget.userId);
+        } else {
+          await db.addMedicine(medicine, widget.userId);
+        }
+
+        // Schedule notification for the added/updated medicine
+        await NotificationService().scheduleMedicineNotifications(medicine);
+
+        if (mounted) Navigator.pop(context, medicine);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(

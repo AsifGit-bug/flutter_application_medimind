@@ -1,5 +1,9 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/database_service.dart';
+import '../patient/patient_dashboard.dart';
+import '../monitor/monitor_dashboard.dart';
+import '../admin/admin_dashboard.dart';
 import 'login_page.dart';
 
 class SplashPage extends StatefulWidget {
@@ -13,14 +17,59 @@ class _SplashPageState extends State<SplashPage> {
   @override
   void initState() {
     super.initState();
-    Timer(const Duration(seconds: 3), () {
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const LoginPage()),
-        );
+    _checkAuth();
+  }
+
+  Future<void> _checkAuth() async {
+    // Wait for minimum splash time
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      // User is logged in, fetch role
+      try {
+        final userData = await DatabaseService().getUserData(user.uid);
+        if (userData != null && mounted) {
+          final role = userData['role'];
+          if (role == 'patient') {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const PatientDashboard()),
+            );
+          } else if (role == 'monitor' || role == 'guardian') {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const MonitorDashboard()),
+            );
+          } else if (role == 'admin') {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const AdminDashboard()),
+            );
+          } else {
+            _goToLogin();
+          }
+        } else {
+          // No user data found (maybe offline without cache?), go to login
+          _goToLogin();
+        }
+      } catch (e) {
+        // Error fetching role, maybe offline?
+        // If cached, it should work. If not, we fall back to login.
+        _goToLogin();
       }
-    });
+    } else {
+      _goToLogin();
+    }
+  }
+
+  void _goToLogin() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginPage()),
+    );
   }
 
   @override

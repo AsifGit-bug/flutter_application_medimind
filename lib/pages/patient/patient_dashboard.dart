@@ -15,6 +15,9 @@ import '../../services/auth_service.dart';
 import '../common/content_display_page.dart';
 import '../common/report_bug_page.dart';
 import '../../utils/translations.dart';
+import '../../services/notification_service.dart';
+import '../common/notifications_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class PatientDashboard extends StatefulWidget {
   const PatientDashboard({super.key});
@@ -42,13 +45,14 @@ class _PatientDashboardState extends State<PatientDashboard> {
   StreamSubscription<List<Medicine>>? _medicinesSubscription;
   String _historyFilterStatus = "All"; // All, Taken, Skipped, Missed, Untracked
   String _medicineFilterStatus = "All"; // All, Daily, Weekly, As Needed
+  bool _useAlarmMode = true; // Default to true
 
   @override
   void initState() {
     super.initState();
     _currentUser = _auth.currentUser!;
     _fetchUserData();
-
+    _loadSettings();
     _subscribeToMedicines();
   }
 
@@ -283,6 +287,37 @@ class _PatientDashboardState extends State<PatientDashboard> {
     }
   }
 
+  Future<void> _loadSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          _useAlarmMode =
+              prefs.getBool(NotificationService.keyAlarmMode) ?? true;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading settings: $e");
+    }
+  }
+
+  Future<void> _toggleAlarmMode(bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(NotificationService.keyAlarmMode, value);
+      setState(() {
+        _useAlarmMode = value;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Alarm mode ${value ? 'enabled' : 'disabled'}")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error saving setting: $e")));
+    }
+  }
+
   void _navigateToAddMedicine() async {
     await Navigator.push(
       context,
@@ -304,9 +339,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
           medicine: medicine,
           userId: _currentUser.uid,
           onDelete: () async {
-            setState(() {
-              _medicines.removeWhere((m) => m.id == medicine.id);
-            });
+            await _db.deleteMedicine(medicine.id);
+            if (!mounted) return;
             Navigator.pop(context);
           },
           onUpdate: (updatedMedicine) {
@@ -403,17 +437,20 @@ class _PatientDashboardState extends State<PatientDashboard> {
   }
 
   Widget _buildCurrentTab() {
+    final activeMedicines = _medicines.where((m) => !m.isDeleted).toList();
     switch (_selectedIndex) {
       case 0:
-        return _buildHomeTab(_medicines);
+        return _buildHomeTab(
+          _medicines,
+        ); // Pass ALL here to handle today's history for archived meds
       case 1:
-        return _buildMedicinesTab(_medicines);
+        return _buildMedicinesTab(activeMedicines);
       case 2:
         return _buildHistoryTab(_medicines);
       case 3:
         return _buildSettingsTab();
       default:
-        return _buildHomeTab(_medicines);
+        return _buildHomeTab(activeMedicines);
     }
   }
 
@@ -548,12 +585,33 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 _buildSettingsTile(
                   Icons.notifications_none,
                   Translations.get('notifications', _currentLanguage),
-                  () {},
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            NotificationsPage(userId: _currentUser.uid),
+                      ),
+                    );
+                  },
+                ),
+                SwitchListTile(
+                  title: const Text("Use Alarm Mode"),
+                  subtitle: const Text("Full-screen alerts for medicines"),
+                  secondary: const Icon(Icons.alarm),
+                  value: _useAlarmMode,
+                  onChanged: _toggleAlarmMode,
+                  activeColor: theme.primaryColor,
                 ),
                 _buildSettingsTile(
                   Icons.language,
                   Translations.get('language', _currentLanguage),
                   _showLanguageDialog,
+                ),
+                _buildSettingsTile(
+                  Icons.archive_outlined,
+                  "Archived Medicines",
+                  _showArchivedMedicines,
                 ),
                 const SizedBox(height: 24),
                 _buildSettingsSectionHeader(
@@ -816,6 +874,19 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
           // If not matched
           if (!matched) {
+            // For archived medicines, count untracked doses as "Skipped"
+            if (med.isDeleted) {
+              historyEvents.add({
+                'name': med.name,
+                'dosage': med.dosage,
+                'type': Translations.get(med.type, _currentLanguage),
+                'time': scheduledDateTime,
+                'status': 'Skipped', // Auto-skip for history
+                'medicine': med,
+              });
+              continue;
+            }
+
             // IF checkDate is TODAY
             if (checkDate.year == today.year &&
                 checkDate.month == today.month &&
@@ -828,6 +899,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                   'type': Translations.get(med.type, _currentLanguage),
                   'time': scheduledDateTime,
                   'status': Translations.get('Missed', _currentLanguage),
+                  'medicine': med,
                   'isExplicit':
                       false, // Implicit Missed (Overdue) -> Interactive
                 });
@@ -841,6 +913,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 'type': Translations.get(med.type, _currentLanguage),
                 'time': scheduledDateTime,
                 'status': 'No Track',
+                'medicine': med,
               });
             }
           }
@@ -854,6 +927,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
             'type': Translations.get(med.type, _currentLanguage),
             'time': takenDoses[takenIndex],
             'status': Translations.get('taken', _currentLanguage),
+            'medicine': med,
           });
           takenIndex++;
         }
@@ -864,6 +938,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
             'type': Translations.get(med.type, _currentLanguage),
             'time': skippedDoses[skippedIndex],
             'status': 'Skipped',
+            'medicine': med,
           });
           skippedIndex++;
         }
@@ -920,31 +995,90 @@ class _PatientDashboardState extends State<PatientDashboard> {
       );
     }
 
+    // Group by day
+    Map<DateTime, List<Map<String, dynamic>>> groupedEvents = {};
+    for (var event in historyEvents) {
+      final date = DateTime(
+        event['time'].year,
+        event['time'].month,
+        event['time'].day,
+      );
+      if (!groupedEvents.containsKey(date)) {
+        groupedEvents[date] = [];
+      }
+      groupedEvents[date]!.add(event);
+    }
+
+    final sortedDates = groupedEvents.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+
     return Column(
       children: [
         _buildHistoryFilterChips(theme),
         const SizedBox(height: 16),
-        ...historyEvents.map((event) {
-          Color statusColor;
-          if (event['status'] == Translations.get('taken', _currentLanguage) ||
-              event['status'] == 'Taken') {
-            statusColor = Colors.green;
-          } else if (event['status'] == 'Skipped') {
-            statusColor = Colors.amber;
-          } else if (event['status'] == 'No Track') {
-            statusColor = Colors.grey;
+        ...sortedDates.map((date) {
+          final events = groupedEvents[date]!;
+          final isToday =
+              date.year == today.year &&
+              date.month == today.month &&
+              date.day == today.day;
+          final isYesterday =
+              date.year == today.year &&
+              date.month == today.month &&
+              date.day == today.subtract(const Duration(days: 1)).day;
+
+          String dateHeader;
+          if (isToday) {
+            dateHeader = "Today";
+          } else if (isYesterday) {
+            dateHeader = "Yesterday";
           } else {
-            statusColor = Colors.red;
+            dateHeader = DateFormat('EEEE, MMM d').format(date);
           }
 
-          return _buildTimelineItem(
-            event['medicine'] as Medicine? ??
-                _medicines.firstWhere((m) => m.name == event['name']),
-            event['name'],
-            "${event['dosage']} • ${event['type']}",
-            event['time'] as DateTime,
-            statusColor,
-            event['status'],
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 4,
+                ),
+                child: Text(
+                  dateHeader,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: theme.primaryColor,
+                  ),
+                ),
+              ),
+              ...events.map((event) {
+                Color statusColor;
+                if (event['status'] ==
+                        Translations.get('taken', _currentLanguage) ||
+                    event['status'] == 'Taken') {
+                  statusColor = Colors.green;
+                } else if (event['status'] == 'Skipped') {
+                  statusColor = Colors.amber;
+                } else if (event['status'] == 'No Track') {
+                  statusColor = Colors.grey;
+                } else {
+                  statusColor = Colors.red;
+                }
+
+                return _buildTimelineItem(
+                  event['medicine'] as Medicine? ??
+                      _medicines.firstWhere((m) => m.name == event['name']),
+                  event['name'],
+                  "${event['dosage']} • ${event['type']}",
+                  event['time'] as DateTime,
+                  statusColor,
+                  event['status'],
+                );
+              }),
+              const SizedBox(height: 8),
+            ],
           );
         }),
       ],
@@ -1096,7 +1230,9 @@ class _PatientDashboardState extends State<PatientDashboard> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  DateFormat('h:mm a').format(time),
+                  isToday
+                      ? DateFormat('h:mm a').format(time)
+                      : DateFormat('MMM d, h:mm a').format(time),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -1255,6 +1391,21 @@ class _PatientDashboardState extends State<PatientDashboard> {
                     Row(
                       children: [
                         _buildSwitchDashboardIcon(color: Colors.white),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.notifications,
+                            color: Colors.white,
+                          ),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    NotificationsPage(userId: _currentUser.uid),
+                              ),
+                            );
+                          },
+                        ),
                         _buildThemeToggle(color: Colors.white),
                       ],
                     ),
@@ -1372,9 +1523,17 @@ class _PatientDashboardState extends State<PatientDashboard> {
           status = "Missed"; // Explicitly Missed
           isImmutable = true;
           missedIndex++;
-        } else {
-          // Standard untracked logic
         }
+
+        // Home Tab Logic:
+        // 1. Hide archived meds from "Upcoming/Untracked" completely.
+        if (med.isDeleted && status == "Untracked") continue;
+
+        // 2. Hide archived meds from history sections (Taken/Skipped/Missed)
+        // IF they weren't manually acted upon before archiving.
+        // (Wait, they already count as Skipped in HISTORY TAB via _buildTimelineView)
+        // Let's hide them from the Home Tab's grouped sections to keep it clean.
+        if (med.isDeleted) continue;
 
         dailyEvents.add({
           'medicine': med,
@@ -1399,6 +1558,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
     final missed = dailyEvents.where((e) => e['status'] == 'Missed').toList();
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (untracked.isNotEmpty)
           _buildSection(
@@ -1414,29 +1574,36 @@ class _PatientDashboardState extends State<PatientDashboard> {
         // History Sections
         _buildSection("Taken", taken, Colors.green, Icons.check_circle),
         _buildSection(
-          "Skipped",
-          skipped,
-          Colors.amber,
-          Icons.remove_circle_outline,
+          "Skipped / Missed",
+          [...skipped, ...missed],
+          Colors.redAccent,
+          Icons.report_gmailerrorred_rounded,
         ),
-        _buildSection("Missed", missed, Colors.red, Icons.error_outline),
       ],
     );
   }
 
   Widget _buildAllCaughtUpCard() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 24, top: 8),
-      padding: const EdgeInsets.all(32),
+      margin: const EdgeInsets.only(bottom: 24, top: 4),
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(32),
+        color: isDark
+            ? theme.primaryColor.withValues(alpha: 0.08)
+            : Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(
+          color: theme.primaryColor.withValues(alpha: isDark ? 0.2 : 0.05),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.blue.withValues(alpha: 0.1),
+            color: theme.shadowColor.withValues(alpha: isDark ? 0.2 : 0.05),
             blurRadius: 20,
-            offset: const Offset(0, 8),
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -1445,22 +1612,32 @@ class _PatientDashboardState extends State<PatientDashboard> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.blue.withValues(alpha: 0.1),
+              color: theme.primaryColor.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
-              Icons.task_alt_rounded,
-              size: 48,
-              color: Colors.blue,
+            child: Icon(
+              Icons.done_all_rounded,
+              size: 40,
+              color: theme.primaryColor,
             ),
           ),
           const SizedBox(height: 16),
-          const Text(
+          Text(
             "No medicines left for today!",
             style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.blue,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: theme.primaryColor,
+              letterSpacing: 0.2,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "You've completed your schedule or processed all upcoming doses.",
+            style: TextStyle(
+              fontSize: 13,
+              color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.6),
             ),
             textAlign: TextAlign.center,
           ),
@@ -1476,13 +1653,14 @@ class _PatientDashboardState extends State<PatientDashboard> {
     IconData icon, {
     bool isExpanded = false,
   }) {
+    final theme = Theme.of(context);
     if (events.isEmpty) return const SizedBox.shrink();
 
     final count = events.length;
     final headerTitle = "$title ($count)";
 
     return Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      data: theme.copyWith(dividerColor: Colors.transparent),
       child: ExpansionTile(
         initiallyExpanded: isExpanded,
         tilePadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
@@ -1599,14 +1777,39 @@ class _PatientDashboardState extends State<PatientDashboard> {
                       Row(
                         children: [
                           Text(
-                            "${med.type} • ${med.dosage} • ${DateFormat('h:mm a').format(time)}",
+                            (time.year == DateTime.now().year &&
+                                    time.month == DateTime.now().month &&
+                                    time.day == DateTime.now().day)
+                                ? "${med.dosage} • ${DateFormat('h:mm a').format(time)}"
+                                : "${med.dosage} • ${DateFormat('MMM d, h:mm a').format(time)}",
                             style: TextStyle(
-                              color: theme.textTheme.bodyMedium?.color
-                                  ?.withValues(alpha: 0.7),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                              color: theme.textTheme.bodySmall?.color,
                             ),
                           ),
+                          if (med.mealInstruction != 'None') ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: theme.primaryColor.withValues(
+                                  alpha: 0.1,
+                                ),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                med.mealInstruction,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.primaryColor,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       // Show weekly days if it's a weekly medicine
@@ -2131,13 +2334,34 @@ class _PatientDashboardState extends State<PatientDashboard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                Translations.get('monitor_requests', _currentLanguage),
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).textTheme.bodyLarge?.color,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    Translations.get('monitor_requests', _currentLanguage),
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).textTheme.bodyLarge?.color,
+                    ),
+                  ),
+                  StreamBuilder<List<Map<String, dynamic>>>(
+                    stream: _db.getLinkedCaregivers(_currentUser.uid),
+                    builder: (context, snapshot) {
+                      final count = snapshot.data?.length ?? 0;
+                      final left = 5 - count;
+                      return Text(
+                        "$left slots left",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: left > 0
+                              ? Theme.of(context).primaryColor
+                              : Colors.red,
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               Expanded(
@@ -2190,7 +2414,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                                       context,
                                     );
                                     final navigator = Navigator.of(context);
-                                    await _db.acceptRequest(
+                                    final result = await _db.acceptRequest(
                                       req['id'],
                                       req['monitorId'],
                                       _currentUser.uid,
@@ -2198,14 +2422,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                                     if (context.mounted) {
                                       navigator.pop();
                                       messenger.showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            Translations.get(
-                                              'request_accepted',
-                                              _currentLanguage,
-                                            ),
-                                          ),
-                                        ),
+                                        SnackBar(content: Text(result)),
                                       );
                                     }
                                   },
@@ -2286,16 +2503,203 @@ class _PatientDashboardState extends State<PatientDashboard> {
     );
   }
 
+  void _showArchivedMedicines() {
+    final theme = Theme.of(context);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StreamBuilder<List<Medicine>>(
+        stream: _db.getMedicines(_currentUser.uid),
+        builder: (context, snapshot) {
+          final archived = (snapshot.data ?? _medicines)
+              .where((m) => m.isDeleted)
+              .toList();
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.75,
+            decoration: BoxDecoration(
+              color: theme.scaffoldBackgroundColor,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
+              ),
+            ),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Archived Medicines",
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  "These medicines are hidden from your active list but their history is preserved. You can delete them permanently here.",
+                  style: TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 24),
+                Expanded(
+                  child: archived.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.archive_outlined,
+                                size: 64,
+                                color: Colors.grey.withValues(alpha: 0.3),
+                              ),
+                              const SizedBox(height: 16),
+                              const Text(
+                                "No archived medicines found",
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: archived.length,
+                          itemBuilder: (context, index) {
+                            final med = archived[index];
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: ListTile(
+                                leading: Icon(
+                                  Icons.medical_services,
+                                  color: theme.primaryColor,
+                                ),
+                                title: Text(
+                                  med.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                subtitle: Text("${med.dosage} • ${med.type}"),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // Restore Button
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.settings_backup_restore,
+                                        color: Colors.blue,
+                                      ),
+                                      onPressed: () async {
+                                        final nav = Navigator.of(context);
+                                        med.isDeleted = false;
+                                        await _db.updateMedicine(
+                                          med,
+                                          _currentUser.uid,
+                                        );
+                                        nav.pop();
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                "${med.name} restored!",
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                      },
+                                    ),
+                                    // Permanent Delete Button
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.delete_forever,
+                                        color: Colors.red,
+                                      ),
+                                      onPressed: () async {
+                                        final confirm = await showDialog<bool>(
+                                          context: context,
+                                          builder: (context) => AlertDialog(
+                                            title: const Text(
+                                              "Delete Permanently?",
+                                            ),
+                                            content: const Text(
+                                              "This will erase ALL dose history for this medicine. This action cannot be undone.",
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(
+                                                  context,
+                                                  false,
+                                                ),
+                                                child: const Text("Cancel"),
+                                              ),
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(
+                                                  context,
+                                                  true,
+                                                ),
+                                                child: const Text(
+                                                  "Delete Forever",
+                                                  style: TextStyle(
+                                                    color: Colors.red,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                        if (confirm == true) {
+                                          final nav = Navigator.of(context);
+                                          await _db.hardDeleteMedicine(med.id);
+                                          nav.pop();
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  "Medicine deleted permanently",
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        }
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _showTakeDialog(Medicine med, DateTime scheduledTime) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text("Take ${med.name}"),
         content: const Text("When did you take this dose?"),
         actions: [
           TextButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               final messenger = ScaffoldMessenger.of(context);
               final localizations = MaterialLocalizations.of(context);
 
@@ -2308,38 +2712,53 @@ class _PatientDashboardState extends State<PatientDashboard> {
               if (!mounted) return;
 
               if (picked != null) {
-                final formattedTime = localizations.formatTimeOfDay(picked);
-
                 final now = DateTime.now();
                 final pickedTime = DateTime(
-                  now.year,
-                  now.month,
-                  now.day,
+                  scheduledTime.year,
+                  scheduledTime.month,
+                  scheduledTime.day,
                   picked.hour,
                   picked.minute,
                 );
+
+                if (pickedTime.isAfter(now)) {
+                  messenger.clearSnackBars();
+                  messenger.showSnackBar(
+                    const SnackBar(
+                      content: Text("Cannot log a dose in the future!"),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
+                final formattedTime = localizations.formatTimeOfDay(picked);
                 await _db.logDose(med.id, pickedTime); // Log ACTUAL time
 
-                if (!mounted) return;
-                messenger.showSnackBar(
-                  SnackBar(
-                    content: Text("Logged ${med.name} at $formattedTime"),
-                  ),
-                );
+                if (mounted) {
+                  messenger.clearSnackBars();
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text("Logged ${med.name} at $formattedTime"),
+                    ),
+                  );
+                }
               }
             },
             child: const Text("Select Time"),
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               final messenger = ScaffoldMessenger.of(context);
               await _db.logDose(med.id, DateTime.now()); // Log NOW
 
-              if (!mounted) return;
-              messenger.showSnackBar(
-                SnackBar(content: Text("Logged ${med.name} now")),
-              );
+              if (mounted) {
+                messenger.clearSnackBars();
+                messenger.showSnackBar(
+                  SnackBar(content: Text("Logged ${med.name} now")),
+                );
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green,

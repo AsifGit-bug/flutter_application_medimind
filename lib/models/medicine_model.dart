@@ -13,6 +13,7 @@ class Medicine {
   String mealInstruction; // NEW: Before Meal, After Meal, None
   List<String> weeklyDays; // For weekly medicines: ['Monday', 'Friday', etc.]
   DateTime? createdAt; // When the medicine was added
+  bool isDeleted; // NEW: Soft delete flag
 
   Medicine({
     required this.id,
@@ -29,5 +30,6 @@ class Medicine {
     this.mealInstruction = 'None',
     this.weeklyDays = const [],
     this.createdAt,
+    this.isDeleted = false,
   });
 }

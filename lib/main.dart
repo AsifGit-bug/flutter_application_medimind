@@ -3,10 +3,12 @@ import 'package:firebase_core/firebase_core.dart';
 import 'pages/auth/splash_page.dart';
 import 'theme/theme_manager.dart';
 import 'firebase_options.dart';
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await NotificationService().init();
   runApp(
     ValueListenableBuilder<ThemeMode>(
       valueListenable: ThemeManager.themeNotifier,
