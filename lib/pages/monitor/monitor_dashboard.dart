@@ -32,7 +32,6 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   void initState() {
     super.initState();
     _currentUser = _auth.currentUser;
-    _linkPatient();
     _loadSettings();
   }
 
