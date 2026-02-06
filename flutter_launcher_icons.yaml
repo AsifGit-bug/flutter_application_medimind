@@ -1,0 +1,7 @@
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.jpg"
+  min_sdk_android: 21 # To support adaptive icons if needed later, but standard for now
+  adaptive_icon_background: "#ffffff" # Optional white background necessary for adaptive icons on newer Androids
+  adaptive_icon_foreground: "assets/icon/app_icon.jpg"

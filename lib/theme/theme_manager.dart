@@ -1,26 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ThemeManager {
   static final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(
-    ThemeMode.dark,
+    ThemeMode.light,
   );
 
   static final ThemeData lightTheme = ThemeData(
     brightness: Brightness.light,
-    primaryColor: const Color(0xFF1565C0), // Primary Blue
-    scaffoldBackgroundColor: const Color(0xFFF7F8F9),
-    cardColor: Colors.white,
-    dividerColor: const Color(0xFFE8ECF4),
+    primaryColor: const Color(0xFF4DB6AC), // Mint/Teal 300
+    scaffoldBackgroundColor: const Color(0xFFE0F2F1), // Teal 50 - Light mint
+    cardColor: const Color(0xFFFFFFFF), // White cards for contrast
+    dividerColor: const Color(0xFFB2DFDB), // Teal 100
     colorScheme: const ColorScheme.light(
-      primary: Color(0xFF1565C0),
+      primary: Color(0xFF4DB6AC),
       secondary: Color(0xFF009688), // Octal Teal
       surface: Colors.white,
       error: Colors.red,
       onSurface: Color(0xFF1E232C), // Text Color
     ),
     appBarTheme: const AppBarTheme(
-      backgroundColor: Colors.white,
+      backgroundColor: Color(0xFFE0F2F1), // Match scaffold
       foregroundColor: Colors.black,
       elevation: 0,
     ),
@@ -39,12 +40,12 @@ class ThemeManager {
 
   static final ThemeData darkTheme = ThemeData(
     brightness: Brightness.dark,
-    primaryColor: const Color(0xFF90CAF9), // Lighter Blue for Dark Mode
+    primaryColor: const Color(0xFF80CBC4), // Lighter Teal for Dark Mode
     scaffoldBackgroundColor: const Color(0xFF121212),
     cardColor: const Color(0xFF1E1E1E),
     dividerColor: const Color(0xFF2C2C2C),
     colorScheme: const ColorScheme.dark(
-      primary: Color(0xFF90CAF9),
+      primary: Color(0xFF80CBC4),
       secondary: Color(0xFF80CBC4),
       surface: Color(0xFF1E1E1E),
       error: Color(0xFFCF6679),
@@ -65,9 +66,17 @@ class ThemeManager {
     iconTheme: const IconThemeData(color: Colors.white70),
   );
 
-  static void toggleTheme() {
+  static Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isDark = prefs.getBool('isDarkMode') ?? false;
+    themeNotifier.value = isDark ? ThemeMode.dark : ThemeMode.light;
+  }
+
+  static void toggleTheme() async {
     themeNotifier.value = themeNotifier.value == ThemeMode.light
         ? ThemeMode.dark
         : ThemeMode.light;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isDarkMode', themeNotifier.value == ThemeMode.dark);
   }
 }

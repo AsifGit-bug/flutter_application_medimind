@@ -323,6 +323,10 @@ class DatabaseService {
       DocumentSnapshot patientDoc = query.docs.first;
       String patientId = patientDoc.id;
 
+      if (monitorId == patientId) {
+        return "You cannot monitor yourself.";
+      }
+
       // Check if already linked
       DocumentSnapshot monitorDoc = await _firestore
           .collection('users')
@@ -370,13 +374,21 @@ class DatabaseService {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
+      // Fetch Monitor Name for notification
+      String monitorName = "A caregiver";
+      if (monitorDoc.exists) {
+        monitorData = monitorDoc.data() as Map<String, dynamic>?;
+        monitorName = monitorData?['name'] ?? "A caregiver";
+      }
+
       // Notify Patient
       await createNotification(
         userId: patientId,
         title: "New Monitor Request",
-        body: "A caregiver wants to link with you.",
+        body: "$monitorName wants to link with you as a caregiver.",
         type: NotificationType.request,
-        targetId: monitorId, // Could be request ID if needed
+        targetId: monitorId,
+        deepLink: 'monitor_requests',
       );
 
       return "Request sent successfully";
@@ -460,7 +472,8 @@ class DatabaseService {
       await createNotification(
         userId: monitorId,
         title: "Request Accepted",
-        body: "Patient has accepted your link request.",
+        body:
+            "${patientData?['name'] ?? 'Patient'} has accepted your link request.",
         type: NotificationType.success,
         targetId: patientId,
       );
@@ -575,10 +588,20 @@ class DatabaseService {
     // If I am the patient, I decline the monitor's request.
     // If I am the monitor, I might cancel/decline? Usually 'decline' is recipient action.
     // Let's notify the sender (Monitor).
+    // Fetch patient name for notification
+    String patientName = "Patient";
+    final patientId = data['patientId'];
+    if (patientId != null) {
+      final pDoc = await _firestore.collection('users').doc(patientId).get();
+      if (pDoc.exists) {
+        patientName = pDoc.data()?['name'] ?? "Patient";
+      }
+    }
+
     await createNotification(
       userId: monitorId,
       title: "Request Declined",
-      body: "Patient has declined your connection request.",
+      body: "$patientName has declined your connection request.",
       type: NotificationType.warning,
       targetId: requestId,
     );

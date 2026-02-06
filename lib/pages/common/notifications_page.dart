@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/notification_model.dart';
 import '../../services/database_service.dart';
+import '../patient/monitor_requests_page.dart';
 
 class NotificationsPage extends StatelessWidget {
   final String userId;
@@ -53,12 +54,17 @@ class NotificationsPage extends StatelessWidget {
                   Icon(
                     Icons.notifications_off_outlined,
                     size: 64,
-                    color: Colors.grey.withValues(alpha: 0.5),
+                    color: theme.disabledColor.withValues(alpha: 0.8),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
+                  Text(
                     "No notifications yet",
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                    style: TextStyle(
+                      color: theme.textTheme.bodyMedium?.color?.withValues(
+                        alpha: 0.8,
+                      ),
+                      fontSize: 16,
+                    ),
                   ),
                 ],
               ),
@@ -102,7 +108,15 @@ class NotificationsPage extends StatelessWidget {
                   child: InkWell(
                     onTap: () {
                       _db.markNotificationAsRead(userId, notification.id);
-                      // Handle deep link navigation if needed
+                      if (notification.deepLink == 'monitor_requests') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                MonitorRequestsPage(userId: userId),
+                          ),
+                        );
+                      }
                     },
                     borderRadius: BorderRadius.circular(12),
                     child: Padding(
@@ -155,7 +169,8 @@ class NotificationsPage extends StatelessWidget {
                                   _formatDate(notification.createdAt),
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: Colors.grey,
+                                    color: theme.textTheme.bodySmall?.color
+                                        ?.withValues(alpha: 0.7),
                                   ),
                                 ),
                               ],

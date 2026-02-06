@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
     <application
-        android:label="flutter_application_medimind"
+        android:label="MediMind"
         android:name="${applicationName}"
         android:showWhenLocked="true"
         android:turnScreenOn="true"

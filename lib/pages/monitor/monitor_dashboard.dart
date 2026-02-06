@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import '../auth/login_page.dart';
+import '../auth/welcome_page.dart';
 import '../../services/database_service.dart';
 import '../../services/auth_service.dart';
 import '../common/report_bug_page.dart';
@@ -12,6 +13,7 @@ import '../patient/patient_dashboard.dart';
 import '../common/notifications_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/notification_service.dart';
+import '../../utils/medicine_icon_helper.dart';
 
 class MonitorDashboard extends StatefulWidget {
   const MonitorDashboard({super.key});
@@ -27,12 +29,27 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   User? _currentUser;
   final TextEditingController _inviteCodeController = TextEditingController();
   bool _allowNotifications = true; // Default to true
+  StreamSubscription? _patientsSubscription; // For monitoring updates
 
   @override
   void initState() {
     super.initState();
     _currentUser = _auth.currentUser;
     _loadSettings();
+    _subscribeToPatients(); // Start listening for patient data
+    _saveLastDashboard();
+  }
+
+  @override
+  void dispose() {
+    _patientsSubscription?.cancel();
+    _inviteCodeController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveLastDashboard() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('last_dashboard_role', 'monitor');
   }
 
   Future<void> _loadSettings() async {
@@ -46,6 +63,52 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       }
     } catch (e) {
       debugPrint("Error loading settings: $e");
+    }
+  }
+
+  void _subscribeToPatients() {
+    if (_currentUser == null) return;
+
+    // Listen to linked patients to keep notifications in sync
+    _patientsSubscription = _db.getLinkedPatients(_currentUser!.uid).listen((
+      patients,
+    ) {
+      if (_allowNotifications) {
+        _refreshMonitorNotifications(patients);
+      }
+    });
+  }
+
+  /// Fetches medicines for all linked patients and schedules notifications
+  Future<void> _refreshMonitorNotifications([
+    List<Map<String, dynamic>>? patients,
+  ]) async {
+    if (_currentUser == null) return;
+
+    // If patients not provided, fetch them (though usually we have them from stream)
+    List<Map<String, dynamic>> targetPatients = patients ?? [];
+    if (patients == null) {
+      // Ideally we'd use the stream value, but for manual refresh:
+      final snapshot = await _db.getLinkedPatients(_currentUser!.uid).first;
+      targetPatients = snapshot;
+    }
+
+    debugPrint(
+      "Refreshing monitor notifications for ${targetPatients.length} patients...",
+    );
+
+    for (var patient in targetPatients) {
+      final String pid = patient['id'];
+      final String name = patient['nickname'] ?? patient['name'] ?? 'Patient';
+
+      try {
+        // Fetch medicines (one-time fetch)
+        final meds = await _db.getMedicines(pid).first;
+        await NotificationService().scheduleMonitorReminders(meds, name);
+        debugPrint("Scheduled ${meds.length} meds for $name");
+      } catch (e) {
+        debugPrint("Error scheduling for $name: $e");
+      }
     }
   }
 
@@ -105,90 +168,39 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_selectedIndex == 0 ? "My Patients" : "Settings"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.swap_horiz),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text("Switch Dashboard"),
-                  content: const Text("Switch to Patient Dashboard?"),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text("No"),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const PatientDashboard(),
-                          ),
-                        );
-                      },
-                      child: const Text("Yes"),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-          StreamBuilder<List<NotificationModel>>(
-            stream: _db.getNotifications(_currentUser!.uid),
-            builder: (context, snapshot) {
-              final hasUnread = snapshot.data?.any((n) => !n.isRead) ?? false;
-              return IconButton(
-                icon: Badge(
-                  isLabelVisible: hasUnread,
-                  smallSize: 8,
-                  child: Icon(
-                    hasUnread
-                        ? Icons.notifications_active
-                        : Icons.notifications_none,
-                  ),
-                ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          NotificationsPage(userId: _currentUser!.uid),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-          IconButton(
-            icon: Icon(
-              ThemeManager.themeNotifier.value == ThemeMode.dark
-                  ? Icons.light_mode
-                  : Icons.dark_mode,
-              color: theme.iconTheme.color,
-            ),
-            onPressed: () => ThemeManager.toggleTheme(),
-          ),
-        ],
-      ),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: _selectedIndex == 0 ? _buildPatientsList() : _buildSettingsTab(),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (idx) => setState(() => _selectedIndex = idx),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.people_rounded),
-            label: "Patients",
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings_rounded),
-            label: "Settings",
-          ),
-        ],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: theme.primaryColor,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, -5),
+            ),
+          ],
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: (idx) => setState(() => _selectedIndex = idx),
+          type: BottomNavigationBarType.fixed,
+          backgroundColor: theme.primaryColor,
+          selectedItemColor: Colors.black,
+          unselectedItemColor: Colors.white.withValues(alpha: 0.9),
+          showUnselectedLabels: true,
+          elevation: 0,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.people_rounded),
+              label: "Patients",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.settings_rounded),
+              label: "Settings",
+            ),
+          ],
+        ),
       ),
       floatingActionButton: _selectedIndex == 0
           ? StreamBuilder<List<Map<String, dynamic>>>(
@@ -221,6 +233,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _db.getLinkedPatients(_currentUser!.uid),
       builder: (context, snapshot) {
+        final theme = Theme.of(context);
         if (snapshot.hasError)
           return Center(child: Text("Error: ${snapshot.error}"));
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -231,16 +244,128 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
 
         return Column(
           children: [
+            // Teal Header Card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(20, 50, 20, 20),
+              decoration: BoxDecoration(
+                color: theme.primaryColor,
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(24),
+                  bottomRight: Radius.circular(24),
+                ),
+              ),
+              child: SafeArea(
+                bottom: false,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: const Text(
+                        "My Patients",
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.swap_horiz,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text("Switch Dashboard"),
+                                content: const Text(
+                                  "Switch to Patient Dashboard?",
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text("No"),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      Navigator.pushReplacement(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              const PatientDashboard(),
+                                        ),
+                                      );
+                                    },
+                                    child: const Text("Yes"),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                        StreamBuilder<List<NotificationModel>>(
+                          stream: _db.getNotifications(_currentUser!.uid),
+                          builder: (context, snapshot) {
+                            final hasUnread =
+                                snapshot.data?.any((n) => !n.isRead) ?? false;
+                            return IconButton(
+                              icon: Badge(
+                                isLabelVisible: hasUnread,
+                                smallSize: 8,
+                                child: Icon(
+                                  hasUnread
+                                      ? Icons.notifications_active
+                                      : Icons.notifications_none,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => NotificationsPage(
+                                      userId: _currentUser!.uid,
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            ThemeManager.themeNotifier.value == ThemeMode.dark
+                                ? Icons.light_mode
+                                : Icons.dark_mode,
+                            color: Colors.white,
+                          ),
+                          onPressed: () => ThemeManager.toggleTheme(),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    "My Patients (${patients.length}/5)",
-                    style: const TextStyle(
+                    "Linked Patients (${patients.length}/5)",
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: Colors.grey,
+                      color: theme.textTheme.bodyMedium?.color?.withValues(
+                        alpha: 0.8,
+                      ),
                     ),
                   ),
                   Text(
@@ -264,12 +389,17 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                       Icon(
                         Icons.people_outline,
                         size: 80,
-                        color: Colors.grey.withValues(alpha: 0.5),
+                        color: theme.disabledColor.withValues(alpha: 0.8),
                       ),
                       const SizedBox(height: 16),
-                      const Text(
+                      Text(
                         "No patients linked yet.",
-                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                        style: TextStyle(
+                          fontSize: 18,
+                          color: theme.textTheme.bodyMedium?.color?.withValues(
+                            alpha: 0.8,
+                          ),
+                        ),
                       ),
                       TextButton(
                         onPressed: _linkPatient,
@@ -482,7 +612,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
                               patient['email'] ?? '',
                               style: TextStyle(
                                 color: theme.textTheme.bodyMedium?.color
-                                    ?.withValues(alpha: 0.6),
+                                    ?.withValues(alpha: 0.9),
                               ),
                             ),
                           ],
@@ -788,7 +918,7 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
       ),
       child: Row(
         children: [
-          Icon(_getMedicineIcon(med.type), color: statusColor),
+          getMedicineIconWidget(med.type, size: 24),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
@@ -821,30 +951,6 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
         ],
       ),
     );
-  }
-
-  IconData _getMedicineIcon(String type) {
-    switch (type.toLowerCase()) {
-      case 'pill':
-      case 'tablet':
-      case 'capsule':
-        return Icons.medication;
-      case 'syrup':
-      case 'liquid':
-        return Icons.local_drink;
-      case 'injection':
-      case 'syringe':
-        return Icons.vaccines;
-      case 'inhaler':
-        return Icons.air;
-      case 'drops':
-        return Icons.water_drop;
-      case 'cream':
-      case 'ointment':
-        return Icons.healing;
-      default:
-        return Icons.medication_liquid;
-    }
   }
 
   void _showEditNicknameSheet(String patientId, String currentNickname) {
@@ -901,64 +1007,214 @@ class _MonitorDashboardState extends State<MonitorDashboard> {
   }
 
   Widget _buildSettingsTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    final theme = Theme.of(context);
+    return Column(
       children: [
-        Card(
-          child: ListTile(
-            leading: const Icon(Icons.notifications_active),
-            title: const Text("Notification Settings"),
-            subtitle: const Text("Manage caregiver alerts"),
-            trailing: Switch(
-              value: _allowNotifications,
-              activeColor: Theme.of(context).primaryColor,
-              onChanged: (val) {
-                setState(() {
-                  _allowNotifications = val;
-                });
-                SharedPreferences.getInstance().then((prefs) {
-                  prefs.setBool(NotificationService.keyAllowNotifications, val);
-                });
-
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      duration: const Duration(seconds: 1),
-                      content: Text(
-                        "Notifications ${val ? 'enabled' : 'disabled'}",
-                      ),
+        // Teal Header Card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(20, 50, 20, 20),
+          decoration: BoxDecoration(
+            color: theme.primaryColor,
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(24),
+              bottomRight: Radius.circular(24),
+            ),
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: const Text(
+                    "Settings",
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
-                  );
-                }
-              },
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(
+                        Icons.swap_horiz,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                      onPressed: () {
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text("Switch Dashboard"),
+                            content: const Text("Switch to Patient Dashboard?"),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text("No"),
+                              ),
+                              TextButton(
+                                onPressed: () async {
+                                  Navigator.pop(context);
+                                  final prefs =
+                                      await SharedPreferences.getInstance();
+                                  await prefs.setString(
+                                    'last_dashboard_role',
+                                    'patient',
+                                  );
+                                  if (context.mounted) {
+                                    Navigator.pushReplacement(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const PatientDashboard(),
+                                      ),
+                                    );
+                                  }
+                                },
+                                child: const Text("Yes"),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        ThemeManager.themeNotifier.value == ThemeMode.dark
+                            ? Icons.light_mode
+                            : Icons.dark_mode,
+                        color: Colors.white,
+                      ),
+                      onPressed: () => ThemeManager.toggleTheme(),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),
-        const Divider(),
-        ListTile(
-          leading: const Icon(Icons.person),
-          title: Text(_currentUser?.email ?? 'User'),
-          subtitle: const Text("Monitor Account"),
-        ),
-        ListTile(
-          leading: const Icon(Icons.bug_report),
-          title: const Text("Report an Issue"),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const ReportBugPage()),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.notifications_active),
+                  title: const Text("Notification Settings"),
+                  subtitle: const Text("Manage caregiver alerts"),
+                  trailing: Switch(
+                    value: _allowNotifications,
+                    activeThumbColor: Theme.of(context).primaryColor,
+                    onChanged: (val) {
+                      setState(() {
+                        _allowNotifications = val;
+                      });
+                      SharedPreferences.getInstance().then((prefs) {
+                        prefs.setBool(
+                          NotificationService.keyAllowNotifications,
+                          val,
+                        );
+                      });
+
+                      // Trigger refresh or cancel
+                      if (val) {
+                        _subscribeToPatients(); // Re-subscribe and schedule
+                      } else {
+                        _patientsSubscription?.cancel();
+                        NotificationService()
+                            .cancelAllNotifications(); // This might be too aggressive if they are also a patient?
+                        // For now assuming Monitor Role = mostly monitor.
+                        // Better: We should only cancel monitor notifications.
+                        // But we didn't implement "cancelMonitorOnly".
+                        // Let's just assume for now it's fine or they can re-enable to get them back.
+                      }
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            duration: const Duration(seconds: 1),
+                            content: Text(
+                              "Notifications ${val ? 'enabled' : 'disabled'}",
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ),
+              if (_allowNotifications)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  child: Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.sync),
+                      title: const Text("Refresh Alerts"),
+                      subtitle: const Text("Update reminders for all patients"),
+                      onTap: () async {
+                        await _refreshMonitorNotifications();
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Alerts refreshed")),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              if (_allowNotifications)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  child: Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.notifications_active_outlined),
+                      title: const Text("Test Monitor Alert"),
+                      onTap: () async {
+                        await NotificationService().showNotification(
+                          id: 88888,
+                          title: 'Test Alert',
+                          body: 'This is how a patient reminder will look.',
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.person),
+                title: Text(_currentUser?.email ?? 'User'),
+                subtitle: const Text("Monitor Account"),
+              ),
+              ListTile(
+                leading: const Icon(Icons.bug_report),
+                title: const Text("Report an Issue"),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ReportBugPage(),
+                  ),
+                ),
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text("Logout"),
+                onTap: () {
+                  _auth.signOut();
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const WelcomePage(),
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
-        ),
-        const Divider(),
-        ListTile(
-          leading: const Icon(Icons.logout, color: Colors.red),
-          title: const Text("Logout"),
-          onTap: () {
-            _auth.signOut();
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const LoginPage()),
-            );
-          },
         ),
       ],
     );

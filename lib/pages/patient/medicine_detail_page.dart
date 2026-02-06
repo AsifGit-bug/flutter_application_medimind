@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/medicine_model.dart';
 import 'add_medicine_page.dart';
+import '../../utils/translations.dart';
+import '../../utils/medicine_icon_helper.dart';
 
 class MedicineDetailPage extends StatefulWidget {
   final Medicine medicine;
@@ -24,10 +26,14 @@ class MedicineDetailPage extends StatefulWidget {
 }
 
 class _MedicineDetailPageState extends State<MedicineDetailPage> {
-  // Theme Colors
-  final Color primaryBlue = const Color(0xFF1565C0);
-  final Color darkBlue = const Color(0xFF1976D2);
-  final Color bgWithBlueTint = const Color(0xFFF0F4F8);
+  final String _currentLanguage = 'en';
+  late Medicine _medicine;
+
+  @override
+  void initState() {
+    super.initState();
+    _medicine = widget.medicine;
+  }
 
   void _navigateToEdit() async {
     if (widget.isReadOnly) return;
@@ -39,9 +45,14 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
       ),
     );
 
-    if (result != null && result is Medicine && widget.onUpdate != null) {
-      widget.onUpdate!(result);
-      setState(() {}); // Rebuild local view
+    if (result != null && result is Medicine) {
+      setState(() {
+        _medicine = result;
+      });
+      if (widget.onUpdate != null) {
+        widget.onUpdate!(result);
+      }
+      // setState(() {}); // Already called above
     }
   }
 
@@ -50,21 +61,22 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Archive Medicine?"),
-        content: const Text(
-          "This will stop tracking the medicine but keep its dose history in your records.",
-        ),
+        title: Text(Translations.get('Archive Medicine?', _currentLanguage)),
+        content: Text(Translations.get('archive_desc', _currentLanguage)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
+            child: Text(Translations.get('Cancel', _currentLanguage)),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context); // Close dialog
               widget.onDelete!(); // Trigger archive callback
             },
-            child: const Text("Archive", style: TextStyle(color: Colors.red)),
+            child: Text(
+              Translations.get('Archive', _currentLanguage),
+              style: const TextStyle(color: Colors.red),
+            ),
           ),
         ],
       ),
@@ -108,7 +120,7 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
             flexibleSpace: FlexibleSpaceBar(
               centerTitle: true,
               title: Text(
-                widget.medicine.name,
+                _medicine.name,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -132,11 +144,7 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
                   Center(
                     child: Opacity(
                       opacity: 0.2,
-                      child: Icon(
-                        _getIconForType(widget.medicine.type),
-                        size: 120,
-                        color: Colors.white,
-                      ),
+                      child: getMedicineIconWidget(_medicine.type, size: 120),
                     ),
                   ),
                 ],
@@ -155,13 +163,19 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
                   const SizedBox(height: 24),
 
                   // Schedule & Instructions
-                  _buildSectionTitle(theme, "Medication Guide"),
+                  _buildSectionTitle(
+                    theme,
+                    Translations.get('Medication Guide', _currentLanguage),
+                  ),
                   const SizedBox(height: 12),
                   _buildGuideCard(theme, isDark),
                   const SizedBox(height: 24),
 
                   // History Section
-                  _buildSectionTitle(theme, "Adherence History"),
+                  _buildSectionTitle(
+                    theme,
+                    Translations.get('Adherence History', _currentLanguage),
+                  ),
                   const SizedBox(height: 12),
                   _buildHistoryCard(theme, isDark),
                 ],
@@ -207,40 +221,44 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
               _buildModernStat(
                 theme,
                 Icons.speed,
-                "Dosage",
-                widget.medicine.dosage,
+                Translations.get('Dosage', _currentLanguage),
+                _medicine.dosage,
               ),
               _buildModernStat(
                 theme,
                 Icons.calendar_month,
-                "Frequency",
-                widget.medicine.frequency,
+                Translations.get('Frequency', _currentLanguage),
+                Translations.get(_medicine.frequency, _currentLanguage),
               ),
               _buildModernStat(
                 theme,
                 Icons.category_outlined,
-                "Type",
-                widget.medicine.type,
+                Translations.get('Type', _currentLanguage),
+                Translations.get(_medicine.type, _currentLanguage),
               ),
             ],
           ),
-          if (widget.medicine.frequency == 'Weekly') ...[
+          if (_medicine.frequency == 'Weekly') ...[
             const Divider(height: 40),
             Text(
-              "Scheduled Days",
-              style: TextStyle(color: Colors.grey[500], fontSize: 13),
+              Translations.get('Scheduled Days', _currentLanguage),
+              style: TextStyle(
+                color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.9),
+                fontSize: 13,
+              ),
             ),
             const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((
                 day,
               ) {
-                bool isSelected = widget.medicine.weeklyDays.any(
+                bool isSelected = _medicine.weeklyDays.any(
                   (d) => d.startsWith(day),
                 );
                 return Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
                     vertical: 6,
@@ -254,7 +272,11 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
                   child: Text(
                     day,
                     style: TextStyle(
-                      color: isSelected ? Colors.white : Colors.grey,
+                      color: isSelected
+                          ? Colors.white
+                          : theme.textTheme.bodySmall?.color?.withValues(
+                              alpha: 0.8,
+                            ),
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
@@ -278,7 +300,13 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
       children: [
         Icon(icon, color: theme.primaryColor, size: 28),
         const SizedBox(height: 8),
-        Text(label, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+        Text(
+          label,
+          style: TextStyle(
+            color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.9),
+            fontSize: 12,
+          ),
+        ),
         const SizedBox(height: 4),
         Text(
           value,
@@ -289,6 +317,17 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
   }
 
   Widget _buildGuideCard(ThemeData theme, bool isDark) {
+    // Build frequency display with days if applicable
+    String frequencyDisplay = _medicine.frequency;
+    final freq = _medicine.frequency.toLowerCase();
+    if ((freq == 'weekly' || freq == 'specific days') &&
+        _medicine.weeklyDays.isNotEmpty) {
+      final daysAbbrev = _medicine.weeklyDays
+          .map((d) => d.substring(0, 3)) // Mon, Tue, etc.
+          .join(', ');
+      frequencyDisplay = '${_medicine.frequency} ($daysAbbrev)';
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -300,27 +339,25 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
         children: [
           _buildGuideRow(
             theme,
-            Icons.restaurant,
-            "Meal Timing",
-            widget.medicine.mealInstruction,
+            Icons.calendar_today,
+            Translations.get('Frequency', _currentLanguage),
+            frequencyDisplay,
           ),
           const Divider(height: 32),
           _buildGuideRow(
             theme,
-            Icons.info_outline,
-            "Instructions",
-            widget.medicine.instructions.isEmpty
-                ? "No special instructions"
-                : widget.medicine.instructions,
+            Icons.restaurant,
+            Translations.get('Meal Timing', _currentLanguage),
+            Translations.get(_medicine.mealInstruction, _currentLanguage),
           ),
           const Divider(height: 32),
           _buildGuideRow(
             theme,
             Icons.alarm,
-            "Scheduled Times",
-            widget.medicine.scheduleTimes.isEmpty
-                ? DateFormat('h:mm a').format(widget.medicine.time)
-                : widget.medicine.scheduleTimes
+            Translations.get('Scheduled Times', _currentLanguage),
+            _medicine.scheduleTimes.isEmpty
+                ? DateFormat('h:mm a').format(_medicine.time)
+                : _medicine.scheduleTimes
                       .map((t) => DateFormat('h:mm a').format(t))
                       .join(", "),
           ),
@@ -353,7 +390,12 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
             children: [
               Text(
                 label,
-                style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                style: TextStyle(
+                  color: theme.textTheme.bodySmall?.color?.withValues(
+                    alpha: 0.9,
+                  ),
+                  fontSize: 12,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -371,66 +413,194 @@ class _MedicineDetailPageState extends State<MedicineDetailPage> {
   }
 
   Widget _buildHistoryCard(ThemeData theme, bool isDark) {
-    final history = widget.medicine.doseHistory.reversed.take(5).toList();
+    // 1. Merge all history types
+    List<Map<String, dynamic>> allEvents = [];
+    final now = DateTime.now();
+    final cutoffDate = now.subtract(const Duration(days: 7));
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(28),
-      ),
-      child: history.isEmpty
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text(
-                  "No records found yet",
-                  style: TextStyle(color: Colors.grey),
-                ),
+    // Filter Helper
+    bool isRecent(DateTime d) => d.isAfter(cutoffDate);
+
+    for (var date in _medicine.doseHistory) {
+      if (isRecent(date)) {
+        allEvents.add({'time': date, 'status': 'Taken', 'color': Colors.green});
+      }
+    }
+    for (var date in _medicine.skipHistory) {
+      if (isRecent(date)) {
+        allEvents.add({
+          'time': date,
+          'status': 'Skipped',
+          'color': Colors.amber,
+        });
+      }
+    }
+    for (var date in _medicine.missedHistory) {
+      if (isRecent(date)) {
+        allEvents.add({'time': date, 'status': 'Missed', 'color': Colors.red});
+      }
+    }
+
+    // 2. Sort descending
+    allEvents.sort((a, b) => b['time'].compareTo(a['time']));
+
+    // 3. Calculate Stats (7 Days)
+    final total = allEvents.length;
+    final takenCount = allEvents.where((e) => e['status'] == 'Taken').length;
+    final skippedCount = allEvents
+        .where((e) => e['status'] == 'Skipped')
+        .length;
+    final missedCount = allEvents.where((e) => e['status'] == 'Missed').length;
+    final adherenceRate = total > 0 ? (takenCount / total * 100).toInt() : 0;
+
+    return Column(
+      children: [
+        // Adherence Stats Row
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.primaryColor.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildStatItem(
+                theme,
+                "$adherenceRate%",
+                Translations.get('7-Day Adherence', _currentLanguage),
+                true,
               ),
-            )
-          : ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: history.length,
-              itemBuilder: (context, index) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.check_circle,
-                        color: Colors.green,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        DateFormat(
-                          'EEEE, MMM d • h:mm a',
-                        ).format(history[index]),
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                    ],
+              _buildVerticalDivider(theme),
+              _buildStatItem(
+                theme,
+                "$takenCount",
+                Translations.get('Taken', _currentLanguage),
+                false,
+              ),
+              _buildVerticalDivider(theme),
+              _buildStatItem(
+                theme,
+                "${skippedCount + missedCount}",
+                Translations.get('Missed', _currentLanguage),
+                false,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // History List
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: theme.cardColor,
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: allEvents.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text(
+                      "No records in the past 7 days",
+                      style: TextStyle(color: Colors.grey),
+                    ),
                   ),
-                );
-              },
-            ),
+                )
+              : ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: allEvents.length,
+                  separatorBuilder: (context, index) =>
+                      const Divider(height: 24),
+                  itemBuilder: (context, index) {
+                    final event = allEvents[index];
+                    final time = event['time'] as DateTime;
+                    final status = event['status'] as String;
+                    final color = event['color'] as Color;
+
+                    return Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            status == 'Taken'
+                                ? Icons.check
+                                : status == 'Skipped'
+                                ? Icons.skip_next
+                                : Icons.priority_high,
+                            color: color,
+                            size: 16,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                Translations.get(status, _currentLanguage),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.textTheme.bodyLarge?.color,
+                                ),
+                              ),
+                              Text(
+                                DateFormat('EEEE, MMM d').format(time),
+                                style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          DateFormat('h:mm a').format(time),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: theme.textTheme.bodyMedium?.color,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 
-  IconData _getIconForType(String type) {
-    switch (type.toLowerCase()) {
-      case 'capsule':
-        return Icons.medication;
-      case 'tablet':
-        return Icons.circle;
-      case 'syrup':
-        return Icons.water_drop;
-      case 'injection':
-        return Icons.vaccines;
-      default:
-        return Icons.medical_services;
-    }
+  Widget _buildStatItem(
+    ThemeData theme,
+    String value,
+    String label,
+    bool isPrimary,
+  ) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: isPrimary
+                ? theme.primaryColor
+                : theme.textTheme.bodyLarge?.color,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+      ],
+    );
+  }
+
+  Widget _buildVerticalDivider(ThemeData theme) {
+    return Container(height: 32, width: 1, color: theme.dividerColor);
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/medicine_model.dart';
 import '../../services/database_service.dart';
@@ -9,13 +10,7 @@ import '../../services/notification_service.dart';
 class AddMedicinePage extends StatefulWidget {
   final Medicine? medicine;
   final String userId; // New required field
-  final String currentLanguage;
-  const AddMedicinePage({
-    super.key,
-    this.medicine,
-    required this.userId,
-    this.currentLanguage = 'en',
-  });
+  const AddMedicinePage({super.key, this.medicine, required this.userId});
 
   @override
   State<AddMedicinePage> createState() => _AddMedicinePageState();
@@ -33,13 +28,26 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
   String _type = 'Pill';
   String _mealInstruction = 'None';
   List<TimeOfDay> _selectedTimes = [TimeOfDay.now()]; // Support multiple times
-  List<String> _selectedWeeklyDays = []; // For Weekly frequency
+  List<String> _selectedWeeklyDays = []; // For Weekly/Specific Days frequency
+  int _timesPerDay = 1; // For Specific Days: 1, 2, or 3
+  final List<String> _timesPerDayOptions = ['Once', 'Twice', 'Thrice'];
+  String _currentLanguage = 'en';
+
+  Future<void> _loadLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _currentLanguage = prefs.getString('language') ?? 'en';
+      });
+    }
+  }
 
   // Options
   final List<String> _frequencies = [
     'Daily',
     'Twice a day',
     'Thrice a day',
+    'Specific Days',
     'Weekly',
     'As needed',
   ];
@@ -49,7 +57,6 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
     'Injection',
     'Drops',
     'Inhaler',
-    'Powder',
     'Other',
   ];
   final List<String> _mealOptions = [
@@ -69,12 +76,10 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
     'Sunday',
   ];
 
-  // Colors
-  final Color primaryBlue = const Color(0xFF1565C0);
-
   @override
   void initState() {
     super.initState();
+    _loadLanguage();
     if (widget.medicine != null) {
       _nameController.text = widget.medicine!.name;
       _dosageController.text = widget.medicine!.dosage;
@@ -97,20 +102,41 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
 
   void _updateTimeListBasedOnFrequency() {
     int count = 1;
-    if (_frequency == 'Twice a day') count = 2;
-    if (_frequency == 'Thrice a day') count = 3;
+    List<TimeOfDay> defaultTimes = [const TimeOfDay(hour: 8, minute: 0)];
 
-    if (_selectedTimes.length < count) {
-      // Add defaults if needed
-      while (_selectedTimes.length < count) {
-        _selectedTimes.add(const TimeOfDay(hour: 8, minute: 0));
+    if (_frequency == 'Twice a day') {
+      count = 2;
+      defaultTimes = [
+        const TimeOfDay(hour: 8, minute: 0), // 8:00 AM
+        const TimeOfDay(hour: 20, minute: 0), // 8:00 PM
+      ];
+    } else if (_frequency == 'Thrice a day') {
+      count = 3;
+      defaultTimes = [
+        const TimeOfDay(hour: 7, minute: 0), // 7:00 AM
+        const TimeOfDay(hour: 12, minute: 0), // 12:00 PM
+        const TimeOfDay(hour: 21, minute: 0), // 9:00 PM
+      ];
+    } else if (_frequency == 'Specific Days') {
+      count = _timesPerDay;
+      if (_timesPerDay == 2) {
+        defaultTimes = [
+          const TimeOfDay(hour: 8, minute: 0),
+          const TimeOfDay(hour: 20, minute: 0),
+        ];
+      } else if (_timesPerDay == 3) {
+        defaultTimes = [
+          const TimeOfDay(hour: 7, minute: 0),
+          const TimeOfDay(hour: 12, minute: 0),
+          const TimeOfDay(hour: 21, minute: 0),
+        ];
       }
-    } else if (_selectedTimes.length > count) {
-      // Truncate
-      _selectedTimes = _selectedTimes.sublist(0, count);
     }
-    // "As needed" or "Weekly" usually 1 time reference or none? Let's keep 1 for Weekly.
-    // "As needed" maybe no time? But for simplicity let's keep 1 reference time.
+
+    // Reset times when frequency changes to use smart defaults
+    if (_selectedTimes.length != count) {
+      _selectedTimes = defaultTimes.sublist(0, count);
+    }
   }
 
   Future<void> _selectTime(BuildContext context, int index) async {
@@ -128,6 +154,26 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
   void _saveMedicine() async {
     if (_isSaving) return;
     if (_formKey.currentState!.validate()) {
+      // Check for duplicate times (only for multiple-dose frequencies)
+      if (_selectedTimes.length > 1) {
+        final timeSet = <String>{};
+        for (var time in _selectedTimes) {
+          final key = '${time.hour}:${time.minute}';
+          if (timeSet.contains(key)) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  Translations.get('duplicate_time_error', _currentLanguage),
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+            return;
+          }
+          timeSet.add(key);
+        }
+      }
+
       setState(() => _isSaving = true);
 
       // Convert TimeODays to DateTimes (using today as base)
@@ -145,11 +191,17 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
         time: finalTimes[0], // Primary time
         scheduleTimes: finalTimes,
         doseHistory: isEditing ? widget.medicine!.doseHistory : [],
+        skipHistory: isEditing ? widget.medicine!.skipHistory : [], // Preserved
+        missedHistory: isEditing
+            ? widget.medicine!.missedHistory
+            : [], // Preserved
         type: _type,
-        instructions:
-            _mealInstruction, // Using meal instruction as main instruction for now or we can concat
+        instructions: _mealInstruction,
         mealInstruction: _mealInstruction,
-        weeklyDays: _selectedWeeklyDays, // ADD THIS!
+        weeklyDays: _selectedWeeklyDays,
+        createdAt: isEditing
+            ? widget.medicine!.createdAt
+            : DateTime.now(), // Preserved
       );
 
       try {
@@ -184,8 +236,11 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
           await db.addMedicine(medicine, widget.userId);
         }
 
-        // Schedule notification for the added/updated medicine
-        await NotificationService().scheduleMedicineNotifications(medicine);
+        // Reschedule all notifications with grouping (so same-time medicines are together)
+        final allMedicines = await db.getMedicines(widget.userId).first;
+        await NotificationService().scheduleAllMedicineNotifications(
+          allMedicines,
+        );
 
         if (mounted) Navigator.pop(context, medicine);
       } catch (e) {
@@ -265,8 +320,8 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
               ),
               const SizedBox(height: 16),
 
-              // Weekly Day Selector (show only if Weekly is selected)
-              if (_frequency == 'Weekly') ...[
+              // Day Selector (show for Weekly or Specific Days)
+              if (_frequency == 'Weekly' || _frequency == 'Specific Days') ...[
                 const SizedBox(height: 8),
                 Text(
                   "Select Days",
@@ -287,10 +342,20 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
                       selected: isSelected,
                       onSelected: (selected) {
                         setState(() {
-                          if (selected) {
-                            _selectedWeeklyDays.add(day);
+                          if (_frequency == 'Weekly') {
+                            // Weekly: Only one day allowed
+                            if (selected) {
+                              _selectedWeeklyDays = [day];
+                            } else {
+                              _selectedWeeklyDays = [];
+                            }
                           } else {
-                            _selectedWeeklyDays.remove(day);
+                            // Specific Days: Multiple allowed
+                            if (selected) {
+                              _selectedWeeklyDays.add(day);
+                            } else {
+                              _selectedWeeklyDays.remove(day);
+                            }
                           }
                         });
                       },
@@ -298,10 +363,12 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
                           currentTheme.brightness == Brightness.dark
                           ? Colors.grey.withValues(alpha: 0.1)
                           : const Color(0xFFF5F9FC),
-                      selectedColor: primaryBlue.withValues(alpha: 0.2),
+                      selectedColor: currentTheme.primaryColor.withValues(
+                        alpha: 0.2,
+                      ),
                       labelStyle: TextStyle(
                         color: isSelected
-                            ? primaryBlue
+                            ? currentTheme.primaryColor
                             : currentTheme.textTheme.bodyMedium?.color,
                         fontWeight: isSelected
                             ? FontWeight.bold
@@ -309,10 +376,64 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
                       ),
                       side: BorderSide(
                         color: isSelected
-                            ? primaryBlue
+                            ? currentTheme.primaryColor
                             : currentTheme.dividerColor,
                       ),
                       showCheckmark: false,
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // Times Per Day selector (only for Specific Days)
+              if (_frequency == 'Specific Days') ...[
+                Text(
+                  "Times Per Day",
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  children: _timesPerDayOptions.asMap().entries.map((entry) {
+                    final index = entry.key + 1; // 1, 2, or 3
+                    final label = entry.value;
+                    final isSelected = _timesPerDay == index;
+                    final currentTheme = Theme.of(context);
+                    return ChoiceChip(
+                      label: Text(label),
+                      selected: isSelected,
+                      onSelected: (selected) {
+                        if (selected) {
+                          setState(() {
+                            _timesPerDay = index;
+                            _updateTimeListBasedOnFrequency();
+                          });
+                        }
+                      },
+                      backgroundColor:
+                          currentTheme.brightness == Brightness.dark
+                          ? Colors.grey.withValues(alpha: 0.1)
+                          : const Color(0xFFF5F9FC),
+                      selectedColor: currentTheme.primaryColor.withValues(
+                        alpha: 0.2,
+                      ),
+                      labelStyle: TextStyle(
+                        color: isSelected
+                            ? currentTheme.primaryColor
+                            : currentTheme.textTheme.bodyMedium?.color,
+                        fontWeight: isSelected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                      side: BorderSide(
+                        color: isSelected
+                            ? currentTheme.primaryColor
+                            : currentTheme.dividerColor,
+                      ),
                     );
                   }).toList(),
                 ),
@@ -358,7 +479,7 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
                 child: ElevatedButton(
                   onPressed: _saveMedicine,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryBlue,
+                    backgroundColor: theme.primaryColor,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
@@ -437,23 +558,45 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
           ),
         ),
         DropdownButtonFormField<String>(
-          initialValue: value,
+          value: items.contains(value) ? value : items.first,
           items: items
               .map(
                 (e) => DropdownMenuItem(
                   value: e,
-                  child: Text(Translations.get(e, widget.currentLanguage)),
+                  child: Text(Translations.get(e, 'en')),
                 ),
               )
               .toList(),
           onChanged: onChanged,
-          decoration: _inputDecoration("", icon),
+          decoration: _inputDecoration(
+            "",
+            icon,
+            customIconPath: label == "Medicine Type"
+                ? (value == "Pill"
+                      ? 'assets/icons/pill.png'
+                      : (value == "Syrup"
+                            ? 'assets/icons/syrup.png'
+                            : (value == "Injection"
+                                  ? 'assets/icons/injection.png'
+                                  : (value == "Inhaler"
+                                        ? 'assets/icons/inhaler.jpg'
+                                        : (value == "Drops"
+                                              ? 'assets/icons/drops.jpg'
+                                              : (value == "Other"
+                                                    ? 'assets/icons/other.png'
+                                                    : null))))))
+                : null,
+          ),
         ),
       ],
     );
   }
 
-  InputDecoration _inputDecoration(String hint, IconData icon) {
+  InputDecoration _inputDecoration(
+    String hint,
+    IconData icon, {
+    String? customIconPath,
+  }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final fillColor = isDark
@@ -461,9 +604,24 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
         : const Color(0xFFF5F9FC);
     final hintColor = isDark ? Colors.grey[500] : const Color(0xFFB0BEC5);
 
+    Widget? prefix;
+    if (customIconPath != null) {
+      prefix = Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Image.asset(
+          customIconPath,
+          width: 24,
+          height: 24,
+          fit: BoxFit.contain,
+        ),
+      );
+    } else {
+      prefix = Icon(icon, color: hintColor);
+    }
+
     return InputDecoration(
       hintText: hint,
-      prefixIcon: Icon(icon, color: hintColor),
+      prefixIcon: prefix,
       hintStyle: TextStyle(color: hintColor),
       filled: true,
       fillColor: fillColor,
@@ -478,7 +636,7 @@ class _AddMedicinePageState extends State<AddMedicinePage> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: primaryBlue, width: 2),
+        borderSide: BorderSide(color: theme.primaryColor, width: 2),
       ),
     );
   }

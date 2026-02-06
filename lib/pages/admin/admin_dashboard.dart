@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/theme_manager.dart';
-import '../auth/login_page.dart';
+import '../auth/welcome_page.dart';
 import '../../services/database_service.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -81,7 +81,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
               // Logout
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(builder: (context) => const LoginPage()),
+                MaterialPageRoute(builder: (context) => const WelcomePage()),
               );
             },
           ),
